@@ -5,6 +5,7 @@
   caddy-api:
     url: http://127.0.0.1:2019/
   cloudflare-tunnel:
+    tunnel_id: 11b10bed-8136-4506-b61a-aa87897d6a21
     connector_id: e6c48fa2-cf04-4b21-b48a-6ec83c358b74
 
 - id: mac
@@ -12,4 +13,5 @@
   ip: 192.168.31.11
   os: macos
   cloudflare-tunnel:
+    tunnel_id: 7c2cee41-2013-4e50-adf6-4b10e24b5f2e
     connector_id: 978448e8-ca0e-47fa-8023-708d258fd03a

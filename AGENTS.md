@@ -17,18 +17,20 @@
 - Environment variables are loaded from the repo-root `.env` before CLI startup.
 - Keep `.env` untracked and maintain a scrubbed `.env.sample` whenever environment variables change.
 - Config is loaded from YAML files in `config/`:
+  - `config/cloudflare-tunnels.yaml`
   - `config/dns.yaml`
   - `config/servers.yaml`
   - `config/services.yaml`
-- `servers.yaml` may declare provider-specific publication capabilities such as `caddy-api` and `cloudflare-tunnel.connector_id`.
+- `servers.yaml` may declare provider-specific publication capabilities such as `caddy-api`, `cloudflare-tunnel.connector_id`, and `cloudflare-tunnel.tunnel_id`.
 - `services.yaml` now models each service with `origin`, `publish`, and optional `dns` sections:
   - `origin.server` and `origin.port` describe where the app actually runs.
   - `publish.caddy` describes the internal Caddy publication target and hostname(s).
-  - `publish.cloudflare-tunnel` is config-only preparation for future external publication sync and is not applied yet.
+  - `publish.cloudflare-tunnel` describes Cloudflare Tunnel publication and is applied during `apply`.
   - `dns.from_publish: caddy` means AdGuard should point the Caddy hostname at the Caddy publish server IP.
 - Dependency injection is wired in `src/container/build-container.ts`.
 - The `apply` flow is split between `src/commands/apply-command.ts` (Commander registration), `src/commands/apply-command-runner.ts` (execution flow), and `src/commands/apply-command-reporter.ts` (CLI output), with typed lifecycle events defined in `src/commands/apply-command-types.ts`.
 - Caddy payload/application logic lives in `src/services/caddy/`.
+- Cloudflare Tunnel ingress and optional public DNS sync logic lives in `src/services/cloudflare/`.
 - AdGuard Home DNS rewrite sync logic lives in `src/services/dns/`.
 
 ## Working Style For This Repo
@@ -43,6 +45,7 @@
 - For behavior that affects live infra, prefer validating with `npm run apply:dry-run` before suggesting or attempting a real apply.
 - If a change affects config parsing or validation, inspect `src/config/config-loader.ts` and the related types first.
 - If a change affects routing/payload generation, inspect `src/services/caddy/caddy-service.ts` first.
+- If a change affects Cloudflare Tunnel publication or public DNS sync, inspect `config/cloudflare-tunnels.yaml`, `config/servers.yaml`, and `src/services/cloudflare/` first.
 - If a change affects DNS rewrite sync, inspect `config/dns.yaml` and `src/services/dns/` first.
 - When adding a new feature, also consider the safest local verification path and document it in the final response.
 
@@ -53,6 +56,8 @@
 - Be careful with hostname, port, URL, and server-reference validation because these are core safety rails for the project.
 - `servers.yaml` and `services.yaml` should include a human-friendly `description` string for operator-facing CLI output.
 - DNS rewrites should map each service `publish.caddy.hostname` to the IP of `publish.caddy.via`, not to the origin server IP, because DNS should route clients into the reverse proxy layer.
+- `cloudflare-tunnels.yaml` controls global Cloudflare auth/options; `options.sync_public_dns` defaults to true and should stay explicit when behavior matters.
+- Cloudflare Tunnel sync needs a repo-level `cloudflare-tunnels.account_id`, a token env var, and per-server `cloudflare-tunnel.tunnel_id` before real applies can succeed.
 
 ## Efficiency Rules For Future Sessions
 - Start by checking whether the request touches CLI registration, config loading, DI wiring, or Caddy service behavior.

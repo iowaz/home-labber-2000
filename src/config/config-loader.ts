@@ -6,6 +6,7 @@ import { decorate, injectable } from "inversify";
 import { parse } from "yaml";
 
 import type {
+  CloudflareTunnelsConfig,
   ConfigLoader,
   DnsConfig,
   HomelabConfig,
@@ -49,6 +50,19 @@ function expectBoolean(value: unknown, field: string, issues: string[]): boolean
   return false;
 }
 
+function expectOptionalString(value: unknown, field: string, issues: string[]): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  issues.push(`${field} must be a string.`);
+  return undefined;
+}
+
 function validateHostname(hostname: string): boolean {
   if (hostname.length === 0 || hostname.length > 253) {
     return false;
@@ -82,6 +96,19 @@ function validateHttpUrl(url: string, field: string, issues: string[]): void {
 async function parseYamlFile(filePath: string): Promise<unknown> {
   const raw = await readFile(filePath, "utf8");
   return parse(raw) as unknown;
+}
+
+async function parseOptionalYamlFile(filePath: string): Promise<unknown> {
+  try {
+    return await parseYamlFile(filePath);
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError.code === "ENOENT") {
+      return undefined;
+    }
+
+    throw error;
+  }
 }
 
 function parseDnsConfig(value: unknown, issues: string[]): DnsConfig {
@@ -127,6 +154,61 @@ function parseDnsConfig(value: unknown, issues: string[]): DnsConfig {
   };
 }
 
+function parseCloudflareTunnelsConfig(
+  value: unknown,
+  issues: string[],
+): CloudflareTunnelsConfig {
+  if (value === undefined) {
+    return {
+      account_id: "",
+      auth: {
+        api_token_env: "CLOUDFLARE_API_TOKEN",
+      },
+      options: {
+        sync_public_dns: true,
+      },
+    };
+  }
+
+  if (!isRecord(value)) {
+    issues.push("cloudflare-tunnels.yaml must contain an object.");
+    return {
+      account_id: "",
+      auth: {
+        api_token_env: "CLOUDFLARE_API_TOKEN",
+      },
+      options: {
+        sync_public_dns: true,
+      },
+    };
+  }
+
+  const auth: UnknownRecord = isRecord(value.auth) ? value.auth : {};
+  const options: UnknownRecord = isRecord(value.options) ? value.options : {};
+
+  return {
+    account_id: value.account_id === undefined
+      ? ""
+      : expectString(value.account_id, "cloudflare-tunnels.account_id", issues),
+    auth: {
+      api_token_env:
+        auth.api_token_env === undefined
+          ? "CLOUDFLARE_API_TOKEN"
+          : expectString(auth.api_token_env, "cloudflare-tunnels.auth.api_token_env", issues),
+    },
+    options: {
+      sync_public_dns:
+        options.sync_public_dns === undefined
+          ? true
+          : expectBoolean(
+              options.sync_public_dns,
+              "cloudflare-tunnels.options.sync_public_dns",
+              issues,
+            ),
+    },
+  };
+}
+
 function parseServers(value: unknown, issues: string[]): ServerEntry[] {
   if (!Array.isArray(value)) {
     issues.push("servers.yaml must contain a list.");
@@ -161,12 +243,22 @@ function parseServers(value: unknown, issues: string[]): ServerEntry[] {
       ? entry["cloudflare-tunnel"]
       : undefined;
     if (cloudflareTunnel) {
+      const tunnelId = expectOptionalString(
+        cloudflareTunnel.tunnel_id,
+        `servers[${index}].cloudflare-tunnel.tunnel_id`,
+        issues,
+      );
+      if (!tunnelId) {
+        issues.push(`servers[${index}].cloudflare-tunnel.tunnel_id is required.`);
+      }
+
       server["cloudflare-tunnel"] = {
-        connector_id: expectString(
+        connector_id: expectOptionalString(
           cloudflareTunnel.connector_id,
           `servers[${index}].cloudflare-tunnel.connector_id`,
           issues,
         ),
+        tunnel_id: tunnelId,
       };
     }
 
@@ -377,6 +469,7 @@ function validateReferences(config: HomelabConfig, issues: string[]): void {
   const serversById = new Map<string, ServerEntry>();
   const serviceIds = new Set<string>();
   const hostnames = new Set<string>();
+  const cloudflareHostnames = new Map<string, string>();
 
   for (const server of config.servers) {
     if (serverIds.has(server.id)) {
@@ -421,10 +514,19 @@ function validateReferences(config: HomelabConfig, issues: string[]): void {
         issues.push(
           `services.${service.id} references unknown cloudflare tunnel publish server '${cloudflareTunnelPublication.via}'.`,
         );
-      } else if (!serversById.get(cloudflareTunnelPublication.via)?.["cloudflare-tunnel"]?.connector_id) {
+      } else if (!serversById.get(cloudflareTunnelPublication.via)?.["cloudflare-tunnel"]) {
         issues.push(
-          `services.${service.id} references cloudflare tunnel publish server '${cloudflareTunnelPublication.via}' without cloudflare-tunnel.connector_id.`,
+          `services.${service.id} references cloudflare tunnel publish server '${cloudflareTunnelPublication.via}' without cloudflare-tunnel config.`,
         );
+      }
+
+      const existingCloudflareServiceId = cloudflareHostnames.get(cloudflareTunnelPublication.hostname);
+      if (existingCloudflareServiceId) {
+        issues.push(
+          `services.${service.id} reuses Cloudflare Tunnel hostname '${cloudflareTunnelPublication.hostname}' already used by services.${existingCloudflareServiceId}. Multiple services cannot share publish.cloudflare-tunnel.hostname, even with different paths.`,
+        );
+      } else {
+        cloudflareHostnames.set(cloudflareTunnelPublication.hostname, service.id);
       }
 
       if (hostnames.has(cloudflareTunnelPublication.hostname)) {
@@ -442,11 +544,13 @@ function validateReferences(config: HomelabConfig, issues: string[]): void {
 export class YamlConfigLoader implements ConfigLoader {
   public async load(configDirectory: string): Promise<HomelabConfig> {
     const dnsPath = path.join(configDirectory, "dns.yaml");
+    const cloudflareTunnelsPath = path.join(configDirectory, "cloudflare-tunnels.yaml");
     const serversPath = path.join(configDirectory, "servers.yaml");
     const servicesPath = path.join(configDirectory, "services.yaml");
 
-    const [dnsRaw, serversRaw, servicesRaw] = await Promise.all([
+    const [dnsRaw, cloudflareTunnelsRaw, serversRaw, servicesRaw] = await Promise.all([
       parseYamlFile(dnsPath),
+      parseOptionalYamlFile(cloudflareTunnelsPath),
       parseYamlFile(serversPath),
       parseYamlFile(servicesPath),
     ]);
@@ -454,6 +558,7 @@ export class YamlConfigLoader implements ConfigLoader {
     const issues: string[] = [];
     const config: HomelabConfig = {
       dns: parseDnsConfig(dnsRaw, issues),
+      cloudflareTunnels: parseCloudflareTunnelsConfig(cloudflareTunnelsRaw, issues),
       servers: parseServers(serversRaw, issues),
       services: parseServices(servicesRaw, issues),
     };

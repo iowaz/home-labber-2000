@@ -4,6 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { ConfigLoader, HomelabConfig, ServerEntry, ServiceEntry } from "../config/types.ts";
 import { TYPES } from "../container/identifiers.ts";
 import type { CaddyServiceFactory } from "../services/caddy/types.ts";
+import type { CloudflareTunnelServiceFactory } from "../services/cloudflare/types.ts";
 import type { DnsRewriteSyncResult, DnsServiceFactory } from "../services/dns/types.ts";
 import {
   APPLY_COMMAND_EVENTS,
@@ -17,15 +18,18 @@ export class ApplyCommandRunner {
 
   private readonly configLoader: ConfigLoader;
   private readonly caddyServiceFactory: CaddyServiceFactory;
+  private readonly cloudflareTunnelServiceFactory: CloudflareTunnelServiceFactory;
   private readonly dnsServiceFactory: DnsServiceFactory;
 
   public constructor(
     configLoader: ConfigLoader,
     caddyServiceFactory: CaddyServiceFactory,
+    cloudflareTunnelServiceFactory: CloudflareTunnelServiceFactory,
     dnsServiceFactory: DnsServiceFactory,
   ) {
     this.configLoader = configLoader;
     this.caddyServiceFactory = caddyServiceFactory;
+    this.cloudflareTunnelServiceFactory = cloudflareTunnelServiceFactory;
     this.dnsServiceFactory = dnsServiceFactory;
   }
 
@@ -43,7 +47,7 @@ export class ApplyCommandRunner {
 
     const targets = this.groupServicesByServer(config.servers, config.services, options.server);
     if (targets.length === 0) {
-      throw new Error("No Caddy-published services matched the selected server scope.");
+      throw new Error("No published services matched the selected server scope.");
     }
 
     await eventBus.emit(APPLY_COMMAND_EVENTS.targetsResolved, {
@@ -81,7 +85,9 @@ export class ApplyCommandRunner {
         (server: ServerEntry): ApplyTarget => ({
           server,
           services: services.filter(
-            (service: ServiceEntry) => service.publish.caddy?.via === server.id,
+            (service: ServiceEntry) =>
+              service.publish.caddy?.via === server.id ||
+              service.publish["cloudflare-tunnel"]?.via === server.id,
           ),
         }),
       )
@@ -89,6 +95,41 @@ export class ApplyCommandRunner {
   }
 
   private async applyTarget(
+    target: ApplyTarget,
+    config: HomelabConfig,
+    options: ApplyOptions,
+    eventBus: ApplyCommandEventBus,
+  ): Promise<void> {
+    const caddyServices = this.getCaddyServicesForTarget(target);
+    if (caddyServices.length > 0) {
+      await this.syncCaddy(
+        {
+          server: target.server,
+          services: caddyServices,
+        },
+        config,
+        options,
+        eventBus,
+      );
+    }
+
+    const cloudflareServices = this.getCloudflareTunnelServicesForTarget(target);
+    if (cloudflareServices.length > 0) {
+      await this.syncCloudflareTunnel(
+        {
+          server: target.server,
+          services: cloudflareServices,
+        },
+        config,
+        options,
+        eventBus,
+      );
+    }
+
+    await this.syncDnsRewrites(target, config, options, eventBus);
+  }
+
+  private async syncCaddy(
     target: ApplyTarget,
     config: HomelabConfig,
     options: ApplyOptions,
@@ -110,17 +151,6 @@ export class ApplyCommandRunner {
           target,
           loadUrl,
         });
-
-        const dnsServices = this.getDnsServicesForTarget(target);
-        if (config.dns.options.create_dns_rewrites && dnsServices.length > 0) {
-          await eventBus.emit(APPLY_COMMAND_EVENTS.dnsDryRun, {
-            target: {
-              server: target.server,
-              services: dnsServices,
-            },
-          });
-        }
-
         return;
       }
 
@@ -140,8 +170,47 @@ export class ApplyCommandRunner {
       });
       throw error;
     }
+  }
 
-    await this.syncDnsRewrites(target, config, options, eventBus);
+  private async syncCloudflareTunnel(
+    target: ApplyTarget,
+    config: HomelabConfig,
+    options: ApplyOptions,
+    eventBus: ApplyCommandEventBus,
+  ): Promise<void> {
+    await eventBus.emit(APPLY_COMMAND_EVENTS.cloudflareSyncStart, {
+      target,
+    });
+
+    try {
+      await this.delayIfSlowRunning(options.slowRunning);
+
+      if (options.dryRun) {
+        await eventBus.emit(APPLY_COMMAND_EVENTS.cloudflareDryRun, {
+          target,
+          publicDnsEnabled: config.cloudflareTunnels.options.sync_public_dns,
+        });
+        return;
+      }
+
+      const cloudflareService = this.cloudflareTunnelServiceFactory(
+        config.cloudflareTunnels,
+        target.server,
+        config.servers,
+      );
+      const result = await cloudflareService.syncPublishedApplications(target.services);
+
+      await eventBus.emit(APPLY_COMMAND_EVENTS.cloudflareSyncSuccess, {
+        target,
+        result,
+      });
+    } catch (error) {
+      await eventBus.emit(APPLY_COMMAND_EVENTS.cloudflareSyncFailed, {
+        target,
+        error,
+      });
+      throw error;
+    }
   }
 
   private async syncDnsRewrites(
@@ -156,6 +225,16 @@ export class ApplyCommandRunner {
 
     const dnsServices = this.getDnsServicesForTarget(target);
     if (dnsServices.length === 0) {
+      return [];
+    }
+
+    if (options.dryRun) {
+      await eventBus.emit(APPLY_COMMAND_EVENTS.dnsDryRun, {
+        target: {
+          server: target.server,
+          services: dnsServices,
+        },
+      });
       return [];
     }
 
@@ -198,7 +277,20 @@ export class ApplyCommandRunner {
 
   private getDnsServicesForTarget(target: ApplyTarget): ServiceEntry[] {
     return target.services.filter(
-      (service: ServiceEntry) => service.dns?.from_publish === "caddy" && Boolean(service.publish.caddy),
+      (service: ServiceEntry) =>
+        service.dns?.from_publish === "caddy" && service.publish.caddy?.via === target.server.id,
+    );
+  }
+
+  private getCaddyServicesForTarget(target: ApplyTarget): ServiceEntry[] {
+    return target.services.filter(
+      (service: ServiceEntry) => service.publish.caddy?.via === target.server.id,
+    );
+  }
+
+  private getCloudflareTunnelServicesForTarget(target: ApplyTarget): ServiceEntry[] {
+    return target.services.filter(
+      (service: ServiceEntry) => service.publish["cloudflare-tunnel"]?.via === target.server.id,
     );
   }
 
@@ -214,4 +306,5 @@ export class ApplyCommandRunner {
 decorate(injectable(), ApplyCommandRunner);
 decorate(inject(TYPES.ConfigLoader), ApplyCommandRunner, 0);
 decorate(inject(TYPES.CaddyServiceFactory), ApplyCommandRunner, 1);
-decorate(inject(TYPES.DnsServiceFactory), ApplyCommandRunner, 2);
+decorate(inject(TYPES.CloudflareTunnelServiceFactory), ApplyCommandRunner, 2);
+decorate(inject(TYPES.DnsServiceFactory), ApplyCommandRunner, 3);

@@ -2,6 +2,7 @@ import Emittery from "emittery";
 
 import type { HomelabConfig, ServerEntry, ServiceEntry } from "../config/types.ts";
 import type { CaddyApplyResult } from "../services/caddy/types.ts";
+import type { CloudflareTunnelSyncResult } from "../services/cloudflare/types.ts";
 import type { DnsRewriteSyncResult } from "../services/dns/types.ts";
 
 export interface ApplyOptions {
@@ -45,6 +46,14 @@ export interface ApplyDnsSyncSuccessEvent extends ApplyTargetEvent {
   results: DnsRewriteSyncResult[];
 }
 
+export interface ApplyCloudflareDryRunEvent extends ApplyTargetEvent {
+  publicDnsEnabled: boolean;
+}
+
+export interface ApplyCloudflareSyncSuccessEvent extends ApplyTargetEvent {
+  result: CloudflareTunnelSyncResult;
+}
+
 export interface ApplyTargetErrorEvent extends ApplyTargetEvent {
   error: unknown;
 }
@@ -62,6 +71,10 @@ export const APPLY_COMMAND_EVENTS = {
   caddyDryRun: "caddy-dry-run",
   caddySyncSuccess: "caddy-sync-success",
   caddySyncFailed: "caddy-sync-failed",
+  cloudflareSyncStart: "cloudflare-sync-start",
+  cloudflareDryRun: "cloudflare-dry-run",
+  cloudflareSyncSuccess: "cloudflare-sync-success",
+  cloudflareSyncFailed: "cloudflare-sync-failed",
   dnsSyncStart: "dns-sync-start",
   dnsDryRun: "dns-dry-run",
   dnsSyncSuccess: "dns-sync-success",
@@ -77,6 +90,10 @@ export interface ApplyCommandEvents {
   [APPLY_COMMAND_EVENTS.caddyDryRun]: ApplyCaddyDryRunEvent;
   [APPLY_COMMAND_EVENTS.caddySyncSuccess]: ApplyCaddySyncSuccessEvent;
   [APPLY_COMMAND_EVENTS.caddySyncFailed]: ApplyTargetErrorEvent;
+  [APPLY_COMMAND_EVENTS.cloudflareSyncStart]: ApplyTargetEvent;
+  [APPLY_COMMAND_EVENTS.cloudflareDryRun]: ApplyCloudflareDryRunEvent;
+  [APPLY_COMMAND_EVENTS.cloudflareSyncSuccess]: ApplyCloudflareSyncSuccessEvent;
+  [APPLY_COMMAND_EVENTS.cloudflareSyncFailed]: ApplyTargetErrorEvent;
   [APPLY_COMMAND_EVENTS.dnsSyncStart]: ApplyTargetEvent;
   [APPLY_COMMAND_EVENTS.dnsDryRun]: ApplyTargetEvent;
   [APPLY_COMMAND_EVENTS.dnsSyncSuccess]: ApplyDnsSyncSuccessEvent;

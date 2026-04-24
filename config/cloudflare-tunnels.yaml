@@ -1,0 +1,5 @@
+account_id: "9a180b8830f9996767db55500c2606d4"
+auth:
+  api_token_env: CLOUDFLARE_API_TOKEN
+options:
+  sync_public_dns: true

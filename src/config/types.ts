@@ -11,13 +11,24 @@ export interface DnsConfig {
   };
 }
 
+export interface CloudflareTunnelsConfig {
+  account_id: string;
+  auth: {
+    api_token_env: string;
+  };
+  options: {
+    sync_public_dns: boolean;
+  };
+}
+
 export interface ServerEntry {
   id: string;
   ip: string;
   os: string;
   description: string;
   "cloudflare-tunnel"?: {
-    connector_id: string;
+    connector_id?: string;
+    tunnel_id?: string;
   };
   "caddy-api"?: {
     url: string;
@@ -74,6 +85,7 @@ export interface ServiceEntry {
 
 export interface HomelabConfig {
   dns: DnsConfig;
+  cloudflareTunnels: CloudflareTunnelsConfig;
   servers: ServerEntry[];
   services: ServiceEntry[];
 }
