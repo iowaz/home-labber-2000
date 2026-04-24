@@ -1,0 +1,133 @@
+- id: transmission
+  domain: transmission.rede.local
+  description: Transmission BitTorrent client
+  server: raspberry-pi-5-ethernet
+  port: 9091
+  healthcheck:
+    url_path: /
+
+- id: flood
+  domain: flood.rede.local
+  description: Flood web UI for Transmission
+  server: raspberry-pi-5-ethernet
+  port: 3115
+  healthcheck:
+    url_path: /
+
+- id: qbittorrent-exporter
+  domain: qbittorrent-exporter.rede.local
+  description: qBittorrent Prometheus exporter
+  server: raspberry-pi-5-ethernet
+  port: 17871
+  healthcheck:
+    url_path: /
+
+- id: qbittorrent
+  domain: qbittorrent.rede.local
+  description: qBittorrent web UI (running on Mac)
+  aliases:
+    - torrent.rede.local
+  server: raspberry-pi-5-ethernet
+  ip_override: 192.168.31.11
+  port: 8872
+  healthcheck:
+    url_path: /
+
+- id: node-exporter
+  domain: node_exporter.rede.local
+  description: Prometheus Node Exporter metrics endpoint
+  server: raspberry-pi-5-ethernet
+  port: 9100
+  healthcheck:
+    url_path: /
+
+- id: grafana
+  domain: grafana.rede.local
+  description: Grafana dashboards
+  server: raspberry-pi-5-ethernet
+  port: 3110
+  healthcheck:
+    url_path: /api/health
+
+- id: prometheus
+  domain: prometheus.rede.local
+  description: Prometheus metrics server
+  server: raspberry-pi-5-ethernet
+  port: 9090
+  healthcheck:
+    url_path: /-/healthy
+
+- id: readarr
+  domain: readarr.rede.local
+  description: Readarr ebook and audiobook manager
+  server: raspberry-pi-5-ethernet
+  port: 3104
+  healthcheck:
+    url_path: /
+
+- id: prowlarr
+  domain: prowlarr.rede.local
+  description: Prowlarr indexer manager
+  server: raspberry-pi-5-ethernet
+  port: 3107
+  healthcheck:
+    url_path: /ping
+
+- id: bazarr
+  domain: bazarr.rede.local
+  description: Bazarr subtitle manager
+  server: raspberry-pi-5-ethernet
+  port: 3103
+  healthcheck:
+    url_path: /
+
+- id: sonarr
+  domain: sonarr.rede.local
+  description: Sonarr TV series manager (running on Mac)
+  server: raspberry-pi-5-ethernet
+  ip_override: 192.168.31.11
+  port: 8989
+  healthcheck:
+    url_path: /ping
+
+- id: radarr
+  domain: radarr.rede.local
+  description: Radarr movie manager (running on Mac)
+  server: raspberry-pi-5-ethernet
+  ip_override: 192.168.31.11
+  port: 7878
+  healthcheck:
+    url_path: /ping
+
+- id: adguardhome
+  domain: adguardhome.rede.local
+  description: AdGuard Home admin interface
+  server: raspberry-pi-5-ethernet
+  port: 3000
+  healthcheck:
+    url_path: /
+
+- id: adguard
+  domain: adguard.rede.local
+  description: Adguard Home DNS
+  server: raspberry-pi-5-ethernet
+  port: 3001
+  healthcheck:
+    url_path: /
+
+- id: jellyfin
+  domain: jellyfin.rede.local
+  description: Jellyfin Media Server (running on Mac)
+  server: raspberry-pi-5-ethernet
+  ip_override: 192.168.31.11
+  port: 8096
+  healthcheck:
+    url_path: /
+
+- id: flaresolverr
+  domain: flaresolverr.rede.local
+  description: FlareSolverr anti-bot proxy
+  server: raspberry-pi-5-ethernet
+  port: 8191
+  healthcheck:
+    url_path: /

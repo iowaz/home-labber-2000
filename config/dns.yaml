@@ -1,0 +1,7 @@
+type: ADGUARD_HOME
+api_url: http://192.168.31.13:3001/control
+auth:
+  username_env: ADGUARD_USERNAME
+  password_env: ADGUARD_PASSWORD
+options:
+  create_dns_rewrites: true

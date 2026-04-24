@@ -1,0 +1,19 @@
+- id: raspberry-pi-5-ethernet
+  description: Raspberry Pi 5 (Ethernet)
+  ip: 192.168.31.13
+  os: caddy-api
+  caddy-api:
+    url: http://127.0.0.1:2019/
+
+# - id: mac
+#   description: Mac host for media and download services
+#   ip: 192.168.31.11
+#   os: macos
+#   winrm:
+#     user: diogo
+#     password_file: /home/diogo/.config/homelab/mac-password.txt
+#     port: 5985
+#     transport: basic
+#   caddy:
+#     caddyfile_path: C:/Caddy/Caddyfile
+#     reload_command: caddy reload --config C:/Caddy/Caddyfile
