@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./logo-en2.png" alt="Home Labber 2000 logo" width="380" />
+  <img src="./logo-en.png" alt="Home Labber 2000 logo" width="380" />
 
   <h1>home-lab-machine-syncer</h1>
 
