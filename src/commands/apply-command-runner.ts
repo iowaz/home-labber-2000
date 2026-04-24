@@ -43,7 +43,7 @@ export class ApplyCommandRunner {
 
     const targets = this.groupServicesByServer(config.servers, config.services, options.server);
     if (targets.length === 0) {
-      throw new Error("No active services matched the selected server scope.");
+      throw new Error("No Caddy-published services matched the selected server scope.");
     }
 
     await eventBus.emit(APPLY_COMMAND_EVENTS.targetsResolved, {
@@ -80,7 +80,9 @@ export class ApplyCommandRunner {
       .map(
         (server: ServerEntry): ApplyTarget => ({
           server,
-          services: services.filter((service: ServiceEntry) => service.server === server.id),
+          services: services.filter(
+            (service: ServiceEntry) => service.publish.caddy?.via === server.id,
+          ),
         }),
       )
       .filter((target: ApplyTarget) => target.services.length > 0);
@@ -97,7 +99,7 @@ export class ApplyCommandRunner {
     });
 
     try {
-      const caddyService = this.caddyServiceFactory(target.server);
+      const caddyService = this.caddyServiceFactory(target.server, config.servers);
       const loadUrl = caddyService.getLoadUrl();
 
       await this.delayIfSlowRunning(options.slowRunning);
@@ -109,9 +111,13 @@ export class ApplyCommandRunner {
           loadUrl,
         });
 
-        if (config.dns.options.create_dns_rewrites) {
+        const dnsServices = this.getDnsServicesForTarget(target);
+        if (config.dns.options.create_dns_rewrites && dnsServices.length > 0) {
           await eventBus.emit(APPLY_COMMAND_EVENTS.dnsDryRun, {
-            target,
+            target: {
+              server: target.server,
+              services: dnsServices,
+            },
           });
         }
 
@@ -148,32 +154,52 @@ export class ApplyCommandRunner {
       return [];
     }
 
+    const dnsServices = this.getDnsServicesForTarget(target);
+    if (dnsServices.length === 0) {
+      return [];
+    }
+
     if (config.dns.type !== "ADGUARD_HOME") {
       throw new Error(`Unsupported dns.type '${config.dns.type}' for DNS rewrite sync.`);
     }
 
     await eventBus.emit(APPLY_COMMAND_EVENTS.dnsSyncStart, {
-      target,
+      target: {
+        server: target.server,
+        services: dnsServices,
+      },
     });
 
     try {
       await this.delayIfSlowRunning(options.slowRunning);
       const dnsService = this.dnsServiceFactory(config.dns);
-      const results = await dnsService.syncServiceRewrites(target.server, target.services);
+      const results = await dnsService.syncServiceRewrites(target.server, dnsServices);
 
       await eventBus.emit(APPLY_COMMAND_EVENTS.dnsSyncSuccess, {
-        target,
+        target: {
+          server: target.server,
+          services: dnsServices,
+        },
         results,
       });
 
       return results;
     } catch (error) {
       await eventBus.emit(APPLY_COMMAND_EVENTS.dnsSyncFailed, {
-        target,
+        target: {
+          server: target.server,
+          services: dnsServices,
+        },
         error,
       });
       throw error;
     }
+  }
+
+  private getDnsServicesForTarget(target: ApplyTarget): ServiceEntry[] {
+    return target.services.filter(
+      (service: ServiceEntry) => service.dns?.from_publish === "caddy" && Boolean(service.publish.caddy),
+    );
   }
 
   private async delayIfSlowRunning(slowRunning?: boolean): Promise<void> {

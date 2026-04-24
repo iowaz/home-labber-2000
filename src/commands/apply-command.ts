@@ -21,11 +21,13 @@ export class ApplyCommand implements CliCommand {
     program
       .command("apply")
       .alias("APPLY")
-      .description("Read config/*.yaml, validate it, and push services to each target Caddy API.")
+      .description(
+        "Read config/*.yaml, validate it, and push Caddy-published services to each target Caddy API.",
+      )
       .option("-c, --config <path>", "Path to the config directory", this.defaultConfigDirectory)
       .option("--dry-run", "Validate and print the generated Caddy target URL instead of POSTing it")
       .option("--slow-running", "Add a 700ms delay to each apply operation for UX validation")
-      .option("--server <id>", "Only apply services for one server id")
+      .option("--server <id>", "Only apply Caddy-published services for one server id")
       .action(this.createActionHandler());
   }
 

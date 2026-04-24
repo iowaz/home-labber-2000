@@ -81,18 +81,19 @@ export class ApplyCliReporter {
       `Loaded ${event.config.services.length} services from ${chalk.cyan(event.configDirectory)}.`,
     );
 
-    const serviceLines = this.buildServiceLines(event.config);
+    console.log(chalk.bold("Origins"));
+    const serviceLines = this.buildServiceSummaryLines(event.config);
     for (const line of serviceLines) {
-      console.log(chalk.dim(line));
+      console.log(line);
     }
   }
 
   private onTargetsResolved(event: ApplyTargetsResolvedEvent): void {
     const summary = event.targets
-      .map((target: ApplyTarget): string => `${target.server.id} (${target.services.length})`)
+      .map((target: ApplyTarget): string => `${chalk.blue(target.server.id)} ${chalk.yellow(`x${target.services.length}`)}`)
       .join(", ");
 
-    console.log(chalk.dim(`Target servers: ${summary}`));
+    console.log(`${chalk.bold("Caddy Targets")} ${summary}`);
   }
 
   private onCaddySyncStart({ target }: { target: ApplyTarget }): void {
@@ -144,28 +145,93 @@ export class ApplyCliReporter {
     console.log(chalk.green(`Finished APPLY for ${event.processedTargets} Caddy target(s).`));
   }
 
-  private formatServiceLine(service: ServiceEntry, server: ServerEntry): string {
-    const upstreamIp = service.ip_override ?? server.ip;
-    const target = `${upstreamIp}:${service.port} (${server.id})`;
-    const serviceDescription = chalk.cyan(service.description);
-    const serverDescription = chalk.gray(server.description);
-
-    return `${service.id} | ${service.domain} | ${target} | ${serviceDescription} | ${serverDescription}`;
-  }
-
-  private buildServiceLines(config: HomelabConfig): string[] {
+  private buildServiceSummaryLines(config: HomelabConfig): string[] {
     const serversById = new Map<string, ServerEntry>(
       config.servers.map((server: ServerEntry): [string, ServerEntry] => [server.id, server]),
     );
+    const servicesByOrigin = new Map<string, ServiceEntry[]>();
 
-    return config.services.map((service: ServiceEntry): string => {
-      const server = serversById.get(service.server);
-      if (!server) {
-        throw new Error(`Service '${service.id}' references unknown server '${service.server}'.`);
+    for (const service of config.services) {
+      const originServices = servicesByOrigin.get(service.origin.server) ?? [];
+      originServices.push(service);
+      servicesByOrigin.set(service.origin.server, originServices);
+    }
+
+    const lines: string[] = [];
+    const originEntries = [...servicesByOrigin.entries()].sort(([leftId], [rightId]) =>
+      leftId.localeCompare(rightId),
+    );
+
+    originEntries.forEach(([originServerId, services], index: number) => {
+      const originServer = serversById.get(originServerId);
+      if (!originServer) {
+        throw new Error(
+          `Unknown origin server '${originServerId}' while building service summary.`,
+        );
       }
 
-      return this.formatServiceLine(service, server);
+      lines.push(this.buildOriginHeaderLine(originServer, services.length));
+
+      const sortedServices = services
+        .slice()
+        .sort((left: ServiceEntry, right: ServiceEntry) => left.id.localeCompare(right.id));
+
+      for (const service of sortedServices) {
+        const caddyServer = service.publish.caddy
+          ? serversById.get(service.publish.caddy.via)
+          : undefined;
+        const cloudflareServer = service.publish["cloudflare-tunnel"]
+          ? serversById.get(service.publish["cloudflare-tunnel"].via)
+          : undefined;
+
+        lines.push(this.buildServiceDetailLine(service, caddyServer, cloudflareServer));
+      }
+
+      if (index < originEntries.length - 1) {
+        lines.push("");
+      }
     });
+
+    return lines;
+  }
+
+  private buildOriginHeaderLine(originServer: ServerEntry, serviceCount: number): string {
+    const countLabel = serviceCount === 1 ? "service" : "services";
+    return `${chalk.bold(originServer.id)} ${chalk.gray(`(${originServer.description})`)} ${chalk.yellow(`:${serviceCount} ${countLabel}`)}`;
+  }
+
+  private buildServiceDetailLine(
+    service: ServiceEntry,
+    caddyServer?: ServerEntry,
+    cloudflareServer?: ServerEntry,
+  ): string {
+    const caddyPublication = service.publish.caddy;
+    const cloudflarePublication = service.publish["cloudflare-tunnel"];
+
+    const details: string[] = [
+      chalk.white(service.id),
+      chalk.gray(`:${service.origin.port}`),
+    ];
+
+    if (caddyPublication) {
+      details.push(
+        `${chalk.blue("C")} ${chalk.cyan(caddyPublication.hostname)} ${chalk.gray(`via ${caddyServer?.id ?? caddyPublication.via}`)}`,
+      );
+    }
+
+    if (service.dns?.from_publish === "caddy") {
+      details.push(`${chalk.magenta("D")} ${chalk.magenta("caddy")}`);
+    }
+
+    if (cloudflarePublication) {
+      details.push(
+        `${chalk.yellow("CF")} ${chalk.yellow(cloudflarePublication.hostname)} ${chalk.gray(`via ${cloudflareServer?.id ?? cloudflarePublication.via}`)}`,
+      );
+    }
+
+    details.push(chalk.gray(service.description));
+
+    return `  ${details.join("  ")}`;
   }
 
   private formatDnsResult(result: DnsRewriteSyncResult): string {

@@ -12,13 +12,17 @@ function hasCaddyApi(server: ServerEntry): server is ServerEntry & { "caddy-api"
 
 export class CaddyService {
   public readonly server: ServerEntry & { "caddy-api": { url: string } };
+  private readonly serversById: Map<string, ServerEntry>;
 
-  public constructor(server: ServerEntry) {
+  public constructor(server: ServerEntry, servers: ServerEntry[]) {
     if (!hasCaddyApi(server)) {
       throw new Error(`Server '${server.id}' does not define caddy-api.url.`);
     }
 
     this.server = server;
+    this.serversById = new Map(
+      servers.map((entry: ServerEntry): [string, ServerEntry] => [entry.id, entry]),
+    );
   }
 
   public getLoadUrl(): string {
@@ -33,7 +37,9 @@ export class CaddyService {
 
     const routes: CaddyRoute[] = services
       .slice()
-      .sort((left: ServiceEntry, right: ServiceEntry) => left.domain.localeCompare(right.domain))
+      .sort((left: ServiceEntry, right: ServiceEntry) =>
+        this.getPrimaryHostname(left).localeCompare(this.getPrimaryHostname(right)),
+      )
       .map((service: ServiceEntry) => this.buildRoute(service));
 
     return {
@@ -82,8 +88,18 @@ export class CaddyService {
   }
 
   private buildRoute(service: ServiceEntry): CaddyRoute {
-    const hostnames: string[] = [service.domain, ...(service.aliases ?? [])];
-    const upstreamIp = service.ip_override ?? this.server.ip;
+    const caddyPublication = service.publish.caddy;
+    if (!caddyPublication) {
+      throw new Error(`Service '${service.id}' does not define publish.caddy.`);
+    }
+
+    const originServer = this.serversById.get(service.origin.server);
+    if (!originServer) {
+      throw new Error(`Service '${service.id}' references unknown origin server '${service.origin.server}'.`);
+    }
+
+    const hostnames: string[] = [caddyPublication.hostname, ...(caddyPublication.aliases ?? [])];
+    const upstreamIp = originServer.ip;
 
     return {
       match: [
@@ -96,12 +112,21 @@ export class CaddyService {
           handler: "reverse_proxy",
           upstreams: [
             {
-              dial: `${upstreamIp}:${service.port}`,
+              dial: `${upstreamIp}:${service.origin.port}`,
             },
           ],
         },
       ],
     };
+  }
+
+  private getPrimaryHostname(service: ServiceEntry): string {
+    const hostname = service.publish.caddy?.hostname;
+    if (!hostname) {
+      throw new Error(`Service '${service.id}' does not define publish.caddy.hostname.`);
+    }
+
+    return hostname;
   }
 
   private async postJsonWithNativeHttp(

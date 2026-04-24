@@ -4,16 +4,12 @@
   os: caddy-api
   caddy-api:
     url: http://127.0.0.1:2019/
+  cloudflare-tunnel:
+    connector_id: e6c48fa2-cf04-4b21-b48a-6ec83c358b74
 
-# - id: mac
-#   description: Mac host for media and download services
-#   ip: 192.168.31.11
-#   os: macos
-#   winrm:
-#     user: diogo
-#     password_file: /home/diogo/.config/homelab/mac-password.txt
-#     port: 5985
-#     transport: basic
-#   caddy:
-#     caddyfile_path: C:/Caddy/Caddyfile
-#     reload_command: caddy reload --config C:/Caddy/Caddyfile
+- id: mac
+  description: Macbook Pro (velhinho)
+  ip: 192.168.31.11
+  os: macos
+  cloudflare-tunnel:
+    connector_id: 978448e8-ca0e-47fa-8023-708d258fd03a

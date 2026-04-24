@@ -10,7 +10,10 @@ import type {
   DnsConfig,
   HomelabConfig,
   ServerEntry,
+  ServiceCaddyPublication,
+  ServiceCloudflareTunnelPublication,
   ServiceEntry,
+  ServiceOrigin,
 } from "./types.ts";
 
 type UnknownRecord = Record<string, unknown>;
@@ -59,6 +62,10 @@ function validateHostname(hostname: string): boolean {
 
 function validateUrlPath(urlPath: string): boolean {
   return urlPath.startsWith("/");
+}
+
+function validateCloudflareTunnelPath(value: string): boolean {
+  return value === "*" || value.startsWith("/");
 }
 
 function validateHttpUrl(url: string, field: string, issues: string[]): void {
@@ -150,6 +157,19 @@ function parseServers(value: unknown, issues: string[]): ServerEntry[] {
       server["caddy-api"] = { url };
     }
 
+    const cloudflareTunnel = isRecord(entry["cloudflare-tunnel"])
+      ? entry["cloudflare-tunnel"]
+      : undefined;
+    if (cloudflareTunnel) {
+      server["cloudflare-tunnel"] = {
+        connector_id: expectString(
+          cloudflareTunnel.connector_id,
+          `servers[${index}].cloudflare-tunnel.connector_id`,
+          issues,
+        ),
+      };
+    }
+
     const caddy = isRecord(entry.caddy) ? entry.caddy : undefined;
     if (caddy) {
       server.caddy = {
@@ -206,62 +226,146 @@ function parseServices(value: unknown, issues: string[]): ServiceEntry[] {
       return [];
     }
 
-    const service: ServiceEntry = {
-      id: expectString(entry.id, `services[${index}].id`, issues),
-      domain: expectString(entry.domain, `services[${index}].domain`, issues),
-      description: expectString(entry.description, `services[${index}].description`, issues),
-      server: expectString(entry.server, `services[${index}].server`, issues),
-      port: expectNumber(entry.port, `services[${index}].port`, issues),
+    const originRecord = isRecord(entry.origin) ? entry.origin : undefined;
+    if (!originRecord) {
+      issues.push(`services[${index}].origin must be an object.`);
+      return [];
+    }
+
+    const origin: ServiceOrigin = {
+      server: expectString(originRecord.server, `services[${index}].origin.server`, issues),
+      port: expectNumber(originRecord.port, `services[${index}].origin.port`, issues),
     };
 
-    if (entry.ip_override !== undefined) {
-      service.ip_override = expectString(
-        entry.ip_override,
-        `services[${index}].ip_override`,
-        issues,
-      );
-
-      if (service.ip_override && isIP(service.ip_override) === 0) {
-        issues.push(`services[${index}].ip_override must be a valid IP address.`);
-      }
+    if (!Number.isInteger(origin.port) || origin.port < 1 || origin.port > 65535) {
+      issues.push(`services[${index}].origin.port must be an integer between 1 and 65535.`);
     }
 
-    if (!validateHostname(service.domain)) {
-      issues.push(`services[${index}].domain must be a valid hostname.`);
-    }
-
-    if (!Number.isInteger(service.port) || service.port < 1 || service.port > 65535) {
-      issues.push(`services[${index}].port must be an integer between 1 and 65535.`);
-    }
-
-    if (entry.aliases !== undefined) {
-      if (!Array.isArray(entry.aliases)) {
-        issues.push(`services[${index}].aliases must be a list.`);
-      } else {
-        const aliases = entry.aliases.map((alias: unknown, aliasIndex: number): string =>
-          expectString(alias, `services[${index}].aliases[${aliasIndex}]`, issues),
-        );
-        service.aliases = aliases;
-
-        for (const alias of aliases) {
-          if (!validateHostname(alias)) {
-            issues.push(`services[${index}].aliases contains an invalid hostname: ${alias}`);
-          }
-        }
-      }
-    }
-
-    const healthcheck = isRecord(entry.healthcheck) ? entry.healthcheck : undefined;
+    const healthcheck = isRecord(originRecord.healthcheck) ? originRecord.healthcheck : undefined;
     if (healthcheck) {
       const urlPath = expectString(
         healthcheck.url_path,
-        `services[${index}].healthcheck.url_path`,
+        `services[${index}].origin.healthcheck.url_path`,
         issues,
       );
       if (!validateUrlPath(urlPath)) {
-        issues.push(`services[${index}].healthcheck.url_path must start with '/'.`);
+        issues.push(`services[${index}].origin.healthcheck.url_path must start with '/'.`);
       }
-      service.healthcheck = { url_path: urlPath };
+      origin.healthcheck = { url_path: urlPath };
+    }
+
+    const publishRecord = isRecord(entry.publish) ? entry.publish : undefined;
+    if (!publishRecord) {
+      issues.push(`services[${index}].publish must be an object.`);
+      return [];
+    }
+
+    const service: ServiceEntry = {
+      id: expectString(entry.id, `services[${index}].id`, issues),
+      description: expectString(entry.description, `services[${index}].description`, issues),
+      origin,
+      publish: {},
+    };
+
+    const caddyPublish = isRecord(publishRecord.caddy) ? publishRecord.caddy : undefined;
+    if (caddyPublish) {
+      const hostname = expectString(
+        caddyPublish.hostname,
+        `services[${index}].publish.caddy.hostname`,
+        issues,
+      );
+      if (!validateHostname(hostname)) {
+        issues.push(`services[${index}].publish.caddy.hostname must be a valid hostname.`);
+      }
+
+      const publication: ServiceCaddyPublication = {
+        via: expectString(caddyPublish.via, `services[${index}].publish.caddy.via`, issues),
+        hostname,
+      };
+
+      if (caddyPublish.aliases !== undefined) {
+        if (!Array.isArray(caddyPublish.aliases)) {
+          issues.push(`services[${index}].publish.caddy.aliases must be a list.`);
+        } else {
+          const aliases = caddyPublish.aliases.map((alias: unknown, aliasIndex: number): string =>
+            expectString(alias, `services[${index}].publish.caddy.aliases[${aliasIndex}]`, issues),
+          );
+          publication.aliases = aliases;
+
+          for (const alias of aliases) {
+            if (!validateHostname(alias)) {
+              issues.push(
+                `services[${index}].publish.caddy.aliases contains an invalid hostname: ${alias}`,
+              );
+            }
+          }
+        }
+      }
+
+      service.publish.caddy = publication;
+    }
+
+    const cloudflareTunnel = isRecord(publishRecord["cloudflare-tunnel"])
+      ? publishRecord["cloudflare-tunnel"]
+      : undefined;
+    if (cloudflareTunnel) {
+      const hostname = expectString(
+        cloudflareTunnel.hostname,
+        `services[${index}].publish.cloudflare-tunnel.hostname`,
+        issues,
+      );
+      if (!validateHostname(hostname)) {
+        issues.push(
+          `services[${index}].publish.cloudflare-tunnel.hostname must be a valid hostname.`,
+        );
+      }
+
+      const publication: ServiceCloudflareTunnelPublication = {
+        via: expectString(
+          cloudflareTunnel.via,
+          `services[${index}].publish.cloudflare-tunnel.via`,
+          issues,
+        ),
+        hostname,
+      };
+
+      if (cloudflareTunnel.path !== undefined) {
+        publication.path = expectString(
+          cloudflareTunnel.path,
+          `services[${index}].publish.cloudflare-tunnel.path`,
+          issues,
+        );
+        if (
+          publication.path.length === 0 ||
+          !validateCloudflareTunnelPath(publication.path)
+        ) {
+          issues.push(
+            `services[${index}].publish.cloudflare-tunnel.path must be '*' or start with '/'.`,
+          );
+        }
+      }
+
+      service.publish["cloudflare-tunnel"] = publication;
+    }
+
+    if (!service.publish.caddy && !service.publish["cloudflare-tunnel"]) {
+      issues.push(`services[${index}].publish must define at least one publication.`);
+    }
+
+    const dnsRecord = isRecord(entry.dns) ? entry.dns : undefined;
+    if (dnsRecord) {
+      const fromPublish = expectString(
+        dnsRecord.from_publish,
+        `services[${index}].dns.from_publish`,
+        issues,
+      );
+      if (fromPublish !== "caddy") {
+        issues.push(`services[${index}].dns.from_publish must be 'caddy'.`);
+      } else {
+        service.dns = {
+          from_publish: "caddy",
+        };
+      }
     }
 
     return [service];
@@ -270,6 +374,7 @@ function parseServices(value: unknown, issues: string[]): ServiceEntry[] {
 
 function validateReferences(config: HomelabConfig, issues: string[]): void {
   const serverIds = new Set<string>();
+  const serversById = new Map<string, ServerEntry>();
   const serviceIds = new Set<string>();
   const hostnames = new Set<string>();
 
@@ -278,6 +383,7 @@ function validateReferences(config: HomelabConfig, issues: string[]): void {
       issues.push(`Duplicate server id found: ${server.id}`);
     }
     serverIds.add(server.id);
+    serversById.set(server.id, server);
   }
 
   for (const service of config.services) {
@@ -286,16 +392,49 @@ function validateReferences(config: HomelabConfig, issues: string[]): void {
     }
     serviceIds.add(service.id);
 
-    if (!serverIds.has(service.server)) {
-      issues.push(`services.${service.id} references unknown server '${service.server}'.`);
+    if (!serverIds.has(service.origin.server)) {
+      issues.push(`services.${service.id} references unknown origin server '${service.origin.server}'.`);
     }
 
-    const names: string[] = [service.domain, ...(service.aliases ?? [])];
-    for (const hostname of names) {
-      if (hostnames.has(hostname)) {
-        issues.push(`Duplicate hostname found: ${hostname}`);
+    const caddyPublication = service.publish.caddy;
+    if (caddyPublication) {
+      if (!serverIds.has(caddyPublication.via)) {
+        issues.push(`services.${service.id} references unknown caddy publish server '${caddyPublication.via}'.`);
+      } else if (!serversById.get(caddyPublication.via)?.["caddy-api"]?.url) {
+        issues.push(
+          `services.${service.id} references caddy publish server '${caddyPublication.via}' without caddy-api.url.`,
+        );
       }
-      hostnames.add(hostname);
+
+      const names: string[] = [caddyPublication.hostname, ...(caddyPublication.aliases ?? [])];
+      for (const hostname of names) {
+        if (hostnames.has(hostname)) {
+          issues.push(`Duplicate hostname found: ${hostname}`);
+        }
+        hostnames.add(hostname);
+      }
+    }
+
+    const cloudflareTunnelPublication = service.publish["cloudflare-tunnel"];
+    if (cloudflareTunnelPublication) {
+      if (!serverIds.has(cloudflareTunnelPublication.via)) {
+        issues.push(
+          `services.${service.id} references unknown cloudflare tunnel publish server '${cloudflareTunnelPublication.via}'.`,
+        );
+      } else if (!serversById.get(cloudflareTunnelPublication.via)?.["cloudflare-tunnel"]?.connector_id) {
+        issues.push(
+          `services.${service.id} references cloudflare tunnel publish server '${cloudflareTunnelPublication.via}' without cloudflare-tunnel.connector_id.`,
+        );
+      }
+
+      if (hostnames.has(cloudflareTunnelPublication.hostname)) {
+        issues.push(`Duplicate hostname found: ${cloudflareTunnelPublication.hostname}`);
+      }
+      hostnames.add(cloudflareTunnelPublication.hostname);
+    }
+
+    if (service.dns?.from_publish === "caddy" && !caddyPublication) {
+      issues.push(`services.${service.id} dns.from_publish references missing caddy publication.`);
     }
   }
 }

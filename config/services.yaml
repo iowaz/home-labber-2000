@@ -1,133 +1,245 @@
 - id: transmission
-  domain: transmission.rede.local
   description: Transmission BitTorrent client
-  server: raspberry-pi-5-ethernet
-  port: 9091
-  healthcheck:
-    url_path: /
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 9091
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: transmission.rede.local
+  dns:
+    from_publish: caddy
 
 - id: flood
-  domain: flood.rede.local
   description: Flood web UI for Transmission
-  server: raspberry-pi-5-ethernet
-  port: 3115
-  healthcheck:
-    url_path: /
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 3115
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: flood.rede.local
+  dns:
+    from_publish: caddy
 
 - id: qbittorrent-exporter
-  domain: qbittorrent-exporter.rede.local
   description: qBittorrent Prometheus exporter
-  server: raspberry-pi-5-ethernet
-  port: 17871
-  healthcheck:
-    url_path: /
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 17871
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: qbittorrent-exporter.rede.local
+  dns:
+    from_publish: caddy
 
 - id: qbittorrent
-  domain: qbittorrent.rede.local
   description: qBittorrent web UI (running on Mac)
-  aliases:
-    - torrent.rede.local
-  server: raspberry-pi-5-ethernet
-  ip_override: 192.168.31.11
-  port: 8872
-  healthcheck:
-    url_path: /
+  origin:
+    server: mac
+    port: 8872
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: qbittorrent.rede.local
+      aliases:
+        - torrent.rede.local
+    cloudflare-tunnel:
+      via: mac
+      hostname: qbittorrent.mac.diogocasteluber.com.br
+      path: "*"
+  dns:
+    from_publish: caddy
 
 - id: node-exporter
-  domain: node_exporter.rede.local
   description: Prometheus Node Exporter metrics endpoint
-  server: raspberry-pi-5-ethernet
-  port: 9100
-  healthcheck:
-    url_path: /
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 9100
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: node_exporter.rede.local
+  dns:
+    from_publish: caddy
 
 - id: grafana
-  domain: grafana.rede.local
   description: Grafana dashboards
-  server: raspberry-pi-5-ethernet
-  port: 3110
-  healthcheck:
-    url_path: /api/health
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 3110
+    healthcheck:
+      url_path: /api/health
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: grafana.rede.local
+  dns:
+    from_publish: caddy
 
 - id: prometheus
-  domain: prometheus.rede.local
   description: Prometheus metrics server
-  server: raspberry-pi-5-ethernet
-  port: 9090
-  healthcheck:
-    url_path: /-/healthy
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 9090
+    healthcheck:
+      url_path: /-/healthy
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: prometheus.rede.local
+  dns:
+    from_publish: caddy
 
 - id: readarr
-  domain: readarr.rede.local
   description: Readarr ebook and audiobook manager
-  server: raspberry-pi-5-ethernet
-  port: 3104
-  healthcheck:
-    url_path: /
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 3104
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: readarr.rede.local
+  dns:
+    from_publish: caddy
 
 - id: prowlarr
-  domain: prowlarr.rede.local
   description: Prowlarr indexer manager
-  server: raspberry-pi-5-ethernet
-  port: 3107
-  healthcheck:
-    url_path: /ping
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 3107
+    healthcheck:
+      url_path: /ping
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: prowlarr.rede.local
+  dns:
+    from_publish: caddy
 
 - id: bazarr
-  domain: bazarr.rede.local
   description: Bazarr subtitle manager
-  server: raspberry-pi-5-ethernet
-  port: 3103
-  healthcheck:
-    url_path: /
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 3103
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: bazarr.rede.local
+  dns:
+    from_publish: caddy
 
 - id: sonarr
-  domain: sonarr.rede.local
   description: Sonarr TV series manager (running on Mac)
-  server: raspberry-pi-5-ethernet
-  ip_override: 192.168.31.11
-  port: 8989
-  healthcheck:
-    url_path: /ping
+  origin:
+    server: mac
+    port: 8989
+    healthcheck:
+      url_path: /ping
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: sonarr.rede.local
+    cloudflare-tunnel:
+      via: mac
+      hostname: sonarr.mac.diogocasteluber.com.br
+      path: "*"
+  dns:
+    from_publish: caddy
 
 - id: radarr
-  domain: radarr.rede.local
   description: Radarr movie manager (running on Mac)
-  server: raspberry-pi-5-ethernet
-  ip_override: 192.168.31.11
-  port: 7878
-  healthcheck:
-    url_path: /ping
+  origin:
+    server: mac
+    port: 7878
+    healthcheck:
+      url_path: /ping
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: radarr.rede.local
+    cloudflare-tunnel:
+      via: mac
+      hostname: radarr.mac.diogocasteluber.com.br
+      path: "*"
+  dns:
+    from_publish: caddy
 
 - id: adguardhome
-  domain: adguardhome.rede.local
   description: AdGuard Home admin interface
-  server: raspberry-pi-5-ethernet
-  port: 3000
-  healthcheck:
-    url_path: /
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 3000
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: adguardhome.rede.local
+  dns:
+    from_publish: caddy
 
 - id: adguard
-  domain: adguard.rede.local
-  description: Adguard Home DNS
-  server: raspberry-pi-5-ethernet
-  port: 3001
-  healthcheck:
-    url_path: /
+  description: AdGuard Home DNS
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 3001
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: adguard.rede.local
+    cloudflare-tunnel:
+      via: raspberry-pi-5-ethernet
+      hostname: adguard.pi.diogocasteluber.com.br
+      path: "*"
+  dns:
+    from_publish: caddy
 
 - id: jellyfin
-  domain: jellyfin.rede.local
   description: Jellyfin Media Server (running on Mac)
-  server: raspberry-pi-5-ethernet
-  ip_override: 192.168.31.11
-  port: 8096
-  healthcheck:
-    url_path: /
+  origin:
+    server: mac
+    port: 8096
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: jellyfin.rede.local
+    cloudflare-tunnel:
+      via: mac
+      hostname: jellyfin.mac.diogocasteluber.com.br
+      path: "*"
+  dns:
+    from_publish: caddy
 
 - id: flaresolverr
-  domain: flaresolverr.rede.local
   description: FlareSolverr anti-bot proxy
-  server: raspberry-pi-5-ethernet
-  port: 8191
-  healthcheck:
-    url_path: /
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 8191
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: flaresolverr.rede.local
+  dns:
+    from_publish: caddy

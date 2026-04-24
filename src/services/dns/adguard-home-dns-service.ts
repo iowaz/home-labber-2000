@@ -84,7 +84,11 @@ export class AdGuardHomeDnsService {
     }
 
     return services.map((service: ServiceEntry): ServiceRewritePlan => {
-      const domain = service.domain;
+      const domain = service.publish.caddy?.hostname;
+      if (!domain) {
+        throw new Error(`Service '${service.id}' does not define publish.caddy.hostname for DNS sync.`);
+      }
+
       const desiredAnswer = server.ip;
       const currentRewrites = rewritesByDomain.get(domain) ?? [];
       const currentAnswers = currentRewrites.map((rewrite: AdGuardRewriteEntry) => rewrite.answer);

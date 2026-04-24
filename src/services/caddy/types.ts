@@ -41,4 +41,4 @@ export interface CaddyApplyTarget {
   services: ServiceEntry[];
 }
 
-export type CaddyServiceFactory = (server: ServerEntry) => CaddyService;
+export type CaddyServiceFactory = (server: ServerEntry, servers: ServerEntry[]) => CaddyService;

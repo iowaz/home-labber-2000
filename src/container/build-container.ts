@@ -17,7 +17,7 @@ export function buildContainer(defaultConfigDirectory: string): Container {
   container.bind<ConfigLoader>(TYPES.ConfigLoader).to(YamlConfigLoader).inSingletonScope();
   container
     .bind<CaddyServiceFactory>(TYPES.CaddyServiceFactory)
-    .toConstantValue((server: ServerEntry) => new CaddyService(server));
+    .toConstantValue((server: ServerEntry, servers: ServerEntry[]) => new CaddyService(server, servers));
   container
     .bind<DnsServiceFactory>(TYPES.DnsServiceFactory)
     .toConstantValue((config: DnsConfig) => new AdGuardHomeDnsService(config));

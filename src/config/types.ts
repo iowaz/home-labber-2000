@@ -16,6 +16,9 @@ export interface ServerEntry {
   ip: string;
   os: string;
   description: string;
+  "cloudflare-tunnel"?: {
+    connector_id: string;
+  };
   "caddy-api"?: {
     url: string;
   };
@@ -36,16 +39,36 @@ export interface ServerEntry {
   };
 }
 
-export interface ServiceEntry {
-  id: string;
-  domain: string;
-  description: string;
-  aliases?: string[];
+export interface ServiceOrigin {
   server: string;
-  ip_override?: string;
   port: number;
   healthcheck?: {
     url_path: string;
+  };
+}
+
+export interface ServiceCaddyPublication {
+  via: string;
+  hostname: string;
+  aliases?: string[];
+}
+
+export interface ServiceCloudflareTunnelPublication {
+  via: string;
+  hostname: string;
+  path?: string;
+}
+
+export interface ServiceEntry {
+  id: string;
+  description: string;
+  origin: ServiceOrigin;
+  publish: {
+    caddy?: ServiceCaddyPublication;
+    "cloudflare-tunnel"?: ServiceCloudflareTunnelPublication;
+  };
+  dns?: {
+    from_publish: "caddy";
   };
 }
 

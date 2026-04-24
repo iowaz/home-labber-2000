@@ -20,6 +20,12 @@
   - `config/dns.yaml`
   - `config/servers.yaml`
   - `config/services.yaml`
+- `servers.yaml` may declare provider-specific publication capabilities such as `caddy-api` and `cloudflare-tunnel.connector_id`.
+- `services.yaml` now models each service with `origin`, `publish`, and optional `dns` sections:
+  - `origin.server` and `origin.port` describe where the app actually runs.
+  - `publish.caddy` describes the internal Caddy publication target and hostname(s).
+  - `publish.cloudflare-tunnel` is config-only preparation for future external publication sync and is not applied yet.
+  - `dns.from_publish: caddy` means AdGuard should point the Caddy hostname at the Caddy publish server IP.
 - Dependency injection is wired in `src/container/build-container.ts`.
 - The `apply` flow is split between `src/commands/apply-command.ts` (Commander registration), `src/commands/apply-command-runner.ts` (execution flow), and `src/commands/apply-command-reporter.ts` (CLI output), with typed lifecycle events defined in `src/commands/apply-command-types.ts`.
 - Caddy payload/application logic lives in `src/services/caddy/`.
@@ -45,9 +51,8 @@
 - Preserve clear error messages when config is invalid.
 - Keep references consistent across `servers.yaml` and `services.yaml`.
 - Be careful with hostname, port, URL, and server-reference validation because these are core safety rails for the project.
-- `services.yaml` may define `ip_override` for cases where a service should route to a different host IP than the referenced server entry; validate it as an IP and prefer it only for upstream dialing.
 - `servers.yaml` and `services.yaml` should include a human-friendly `description` string for operator-facing CLI output.
-- DNS rewrites should map each service `domain` to the target Caddy server IP, not to a service `ip_override`, because DNS should route clients into the reverse proxy layer.
+- DNS rewrites should map each service `publish.caddy.hostname` to the IP of `publish.caddy.via`, not to the origin server IP, because DNS should route clients into the reverse proxy layer.
 
 ## Efficiency Rules For Future Sessions
 - Start by checking whether the request touches CLI registration, config loading, DI wiring, or Caddy service behavior.

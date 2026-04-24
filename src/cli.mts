@@ -28,7 +28,7 @@ const program = new Command();
 
 program
   .name("home-lab-machine-syncer")
-  .description("Syncs homelab service definitions into Caddy API targets.")
+  .description("Syncs homelab service publications into Caddy API targets.")
   .showHelpAfterError();
 
 const applyCommand = container.get<CliCommand>(TYPES.ApplyCommand);
