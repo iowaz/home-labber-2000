@@ -32,6 +32,7 @@
   - `dns.from_publish: caddy` means AdGuard should point the Caddy hostname at the Caddy publish server IP.
 - Dependency injection is wired in `src/container/build-container.ts`.
 - The `apply` flow is split between `src/commands/apply-command.ts` (Commander registration), `src/commands/apply-command-runner.ts` (execution flow), and `src/commands/apply-command-reporter.ts` (CLI output), with typed lifecycle events defined in `src/commands/apply-command-types.ts`.
+- Apply command helpers live alongside the command modules: `src/commands/apply-command-targets.ts` owns pure target/service selection, and `src/commands/apply-command-output.ts` owns CLI output line/progress formatting.
 - Apply reporter output should keep every log line prefixed by its operation label, aggregate unchanged per-resource results, and lead service-specific rows with the trimmed service description.
 - Caddy payload/application logic lives in `src/services/caddy/`.
 - Cloudflare Tunnel ingress and optional public DNS sync logic lives in `src/services/cloudflare/`.

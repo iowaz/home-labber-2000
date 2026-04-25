@@ -1,12 +1,18 @@
 import { decorate, inject, injectable } from "inversify";
 import { setTimeout as delay } from "node:timers/promises";
 
-import type { ConfigLoader, HomelabConfig, ServerEntry, ServiceEntry } from "../config/types.ts";
+import type { ConfigLoader, HomelabConfig } from "../config/types.ts";
 import { TYPES } from "../container/identifiers.ts";
 import type { HomelabLockfile, LockfileStore, ManagedCloudflareTunnelServerState } from "../lockfile/types.ts";
 import type { CaddyServiceFactory } from "../services/caddy/types.ts";
 import type { CloudflareTunnelServiceFactory } from "../services/cloudflare/types.ts";
 import type { DnsRewriteSyncResult, DnsServiceFactory } from "../services/dns/types.ts";
+import {
+  getCaddyServicesForTarget,
+  getCloudflareTunnelServicesForTarget,
+  getDnsServicesForTarget,
+  resolveApplyTargets,
+} from "./apply-command-targets.ts";
 import {
   APPLY_COMMAND_EVENTS,
   type ApplyCommandEventBus,
@@ -53,7 +59,7 @@ export class ApplyCommandRunner {
       configDirectory: options.config,
     });
 
-    const targets = this.groupServicesByServer(config.servers, config.services, lockfile, options.server);
+    const targets = resolveApplyTargets(config.servers, config.services, lockfile, options.server);
     if (targets.length === 0) {
       throw new Error("No published services matched the selected server scope.");
     }
@@ -75,45 +81,6 @@ export class ApplyCommandRunner {
     });
   }
 
-  private groupServicesByServer(
-    servers: ServerEntry[],
-    services: ServiceEntry[],
-    lockfile: HomelabLockfile,
-    requestedServerId?: string,
-  ): ApplyTarget[] {
-    const serversById = new Map<string, ServerEntry>(
-      servers.map((server: ServerEntry): [string, ServerEntry] => [server.id, server]),
-    );
-    const requestedServerIds = requestedServerId
-      ? [requestedServerId]
-      : this.resolveTargetServerIds(servers, lockfile);
-
-    if (
-      requestedServerId &&
-      !serversById.has(requestedServerId) &&
-      !this.hasManagedLockState(lockfile, requestedServerId)
-    ) {
-      throw new Error(`Server '${requestedServerId}' was not found in config or lockfile.`);
-    }
-
-    return requestedServerIds
-      .map((serverId: string): ApplyTarget => {
-        const server = serversById.get(serverId) ?? this.createLockfileCleanupServer(serverId, lockfile);
-        return {
-          server,
-          services: services.filter(
-            (service: ServiceEntry) =>
-              service.publish.caddy?.via === server.id ||
-              service.publish["cloudflare-tunnel"]?.via === server.id,
-          ),
-        };
-      })
-      .filter(
-        (target: ApplyTarget) =>
-          target.services.length > 0 || this.hasManagedLockState(lockfile, target.server.id),
-      );
-  }
-
   private async applyTarget(
     target: ApplyTarget,
     config: HomelabConfig,
@@ -121,7 +88,7 @@ export class ApplyCommandRunner {
     options: ApplyOptions,
     eventBus: ApplyCommandEventBus,
   ): Promise<void> {
-    const caddyServices = this.getCaddyServicesForTarget(target);
+    const caddyServices = getCaddyServicesForTarget(target);
     if (caddyServices.length > 0 || lockfile.caddy[target.server.id]) {
       await this.syncCaddy(
         {
@@ -135,7 +102,7 @@ export class ApplyCommandRunner {
       );
     }
 
-    const cloudflareServices = this.getCloudflareTunnelServicesForTarget(target);
+    const cloudflareServices = getCloudflareTunnelServicesForTarget(target);
     if (cloudflareServices.length > 0 || lockfile.cloudflareTunnel[target.server.id]) {
       await this.syncCloudflareTunnel(
         {
@@ -291,7 +258,7 @@ export class ApplyCommandRunner {
       return [];
     }
 
-    const dnsServices = this.getDnsServicesForTarget(target);
+    const dnsServices = getDnsServicesForTarget(target);
     const previousState = lockfile.dns[target.server.id];
     if (dnsServices.length === 0 && !previousState) {
       return [];
@@ -371,68 +338,6 @@ export class ApplyCommandRunner {
       });
       throw error;
     }
-  }
-
-  private getDnsServicesForTarget(target: ApplyTarget): ServiceEntry[] {
-    return target.services.filter(
-      (service: ServiceEntry) =>
-        service.dns?.from_publish === "caddy" && service.publish.caddy?.via === target.server.id,
-    );
-  }
-
-  private getCaddyServicesForTarget(target: ApplyTarget): ServiceEntry[] {
-    return target.services.filter(
-      (service: ServiceEntry) => service.publish.caddy?.via === target.server.id,
-    );
-  }
-
-  private getCloudflareTunnelServicesForTarget(target: ApplyTarget): ServiceEntry[] {
-    return target.services.filter(
-      (service: ServiceEntry) => service.publish["cloudflare-tunnel"]?.via === target.server.id,
-    );
-  }
-
-  private hasManagedLockState(lockfile: HomelabLockfile, serverId: string): boolean {
-    return Boolean(
-      lockfile.caddy[serverId] || lockfile.cloudflareTunnel[serverId] || lockfile.dns[serverId],
-    );
-  }
-
-  private resolveTargetServerIds(servers: ServerEntry[], lockfile: HomelabLockfile): string[] {
-    const configServerIds = servers.map((server: ServerEntry) => server.id);
-    const lockfileOnlyServerIds = [
-      ...new Set<string>([
-        ...Object.keys(lockfile.caddy),
-        ...Object.keys(lockfile.cloudflareTunnel),
-        ...Object.keys(lockfile.dns),
-      ]),
-    ]
-      .filter((serverId: string) => !configServerIds.includes(serverId))
-      .sort((left: string, right: string) => left.localeCompare(right));
-
-    return [...configServerIds, ...lockfileOnlyServerIds];
-  }
-
-  private createLockfileCleanupServer(lockfileServerId: string, lockfile: HomelabLockfile): ServerEntry {
-    const caddyState = lockfile.caddy[lockfileServerId];
-    const cloudflareState = lockfile.cloudflareTunnel[lockfileServerId];
-
-    return {
-      id: lockfileServerId,
-      ip: "0.0.0.0",
-      os: "lockfile-cleanup",
-      description: "Removed from config; applying lockfile cleanup",
-      "caddy-api": caddyState
-        ? {
-            url: caddyState.adminUrl,
-          }
-        : undefined,
-      "cloudflare-tunnel": cloudflareState
-        ? {
-            tunnel_id: cloudflareState.tunnelId,
-          }
-        : undefined,
-    };
   }
 
   private updateCaddyLockState(
