@@ -207,7 +207,7 @@
       hostname: adguard.rede.local
     cloudflare-tunnel:
       via: raspberry-pi-5-ethernet
-      hostname: adguard.pi.diogocasteluber.com.br
+      hostname: adguard-home.diogocasteluber.com.br
       path: "*"
   dns:
     from_publish: caddy
@@ -222,10 +222,10 @@
   publish:
     caddy:
       via: raspberry-pi-5-ethernet
-      hostname: jellyfin3.rede.local
+      hostname: jellyfin.rede.local
     cloudflare-tunnel:
       via: mac
-      hostname: jellyfin.mac.diogocasteluber.com.br
+      hostname: jellyfin.diogocasteluber.com.br
       path: "*"
   dns:
     from_publish: caddy

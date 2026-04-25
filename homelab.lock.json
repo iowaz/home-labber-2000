@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "updatedAt": "2026-04-25T02:25:43.883Z",
+  "updatedAt": "2026-04-25T03:05:37.284Z",
   "caddy": {
     "raspberry-pi-5-ethernet": {
       "adminUrl": "http://127.0.0.1:2019/load",
-      "payloadHash": "sha256:f9f1b439c4e7dcc9c26b2efc2760e475fd8d6b01f78cdf7a706c986bc59c24f5",
+      "payloadHash": "sha256:0933218723b50d8ce0d27cfa80955af39b5e03b831729d522096b6b89bda38be",
       "services": {
         "adguard": {
           "hostnames": [
@@ -44,7 +44,7 @@
         },
         "jellyfin": {
           "hostnames": [
-            "jellyfin3.rede.local"
+            "jellyfin.rede.local"
           ],
           "upstream": "192.168.31.11:8096"
         },
@@ -111,7 +111,7 @@
       "tunnelId": "7c2cee41-2013-4e50-adf6-4b10e24b5f2e",
       "ingress": {
         "jellyfin": {
-          "hostname": "jellyfin.mac.diogocasteluber.com.br",
+          "hostname": "jellyfin.diogocasteluber.com.br",
           "service": "http://localhost:8096"
         },
         "qbittorrent": {
@@ -129,10 +129,10 @@
       },
       "publicDns": {
         "jellyfin": {
-          "hostname": "jellyfin.mac.diogocasteluber.com.br",
+          "hostname": "jellyfin.diogocasteluber.com.br",
           "tunnelId": "7c2cee41-2013-4e50-adf6-4b10e24b5f2e",
           "zoneId": "b5789fc0ca9e748a6f37f3401cc2a9b0",
-          "recordId": "d370b8a4a9e8ca4e44882d70ba81e4e5"
+          "recordId": "448f496919fbec5bec47740888a8fc94"
         },
         "qbittorrent": {
           "hostname": "qbittorrent.mac.diogocasteluber.com.br",
@@ -158,14 +158,16 @@
       "tunnelId": "11b10bed-8136-4506-b61a-aa87897d6a21",
       "ingress": {
         "adguard": {
-          "hostname": "adguard.pi.diogocasteluber.com.br",
+          "hostname": "adguard-home.diogocasteluber.com.br",
           "service": "http://localhost:3001"
         }
       },
       "publicDns": {
         "adguard": {
-          "hostname": "adguard.pi.diogocasteluber.com.br",
-          "tunnelId": "11b10bed-8136-4506-b61a-aa87897d6a21"
+          "hostname": "adguard-home.diogocasteluber.com.br",
+          "tunnelId": "11b10bed-8136-4506-b61a-aa87897d6a21",
+          "zoneId": "b5789fc0ca9e748a6f37f3401cc2a9b0",
+          "recordId": "85bf97b9294913034f624bda3b1a32b2"
         }
       }
     }
@@ -199,7 +201,7 @@
           "answer": "192.168.31.13"
         },
         "jellyfin": {
-          "domain": "jellyfin3.rede.local",
+          "domain": "jellyfin.rede.local",
           "answer": "192.168.31.13"
         },
         "node-exporter": {
