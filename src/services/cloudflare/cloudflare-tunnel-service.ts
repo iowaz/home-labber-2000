@@ -15,6 +15,7 @@ import type {
   CloudflareTunnelIngressRule,
   CloudflareTunnelIngressSyncResult,
   CloudflareTunnelSyncAction,
+  CloudflareTunnelSyncProgressHandler,
   CloudflareTunnelSyncResult,
 } from "./types.ts";
 
@@ -189,10 +190,15 @@ export class CloudflareTunnelService {
   public async syncPublishedApplications(
     services: ServiceEntry[],
     previousState?: ManagedCloudflareTunnelServerState,
+    onProgress?: CloudflareTunnelSyncProgressHandler,
   ): Promise<CloudflareTunnelSyncResult> {
-    const ingressResult = await this.syncIngressRules(services, previousState?.ingress ?? {});
+    const ingressResult = await this.syncIngressRules(
+      services,
+      previousState?.ingress ?? {},
+      onProgress,
+    );
     const publicDnsResult = this.config.options.sync_public_dns
-      ? await this.syncPublicDnsRecords(services, previousState?.publicDns ?? {})
+      ? await this.syncPublicDnsRecords(services, previousState?.publicDns ?? {}, onProgress)
       : {
           lockState: { ...(previousState?.publicDns ?? {}) },
           results: [],
@@ -213,6 +219,7 @@ export class CloudflareTunnelService {
   private async syncIngressRules(
     services: ServiceEntry[],
     previousManagedIngress: ManagedCloudflareTunnelServerState["ingress"],
+    onProgress?: CloudflareTunnelSyncProgressHandler,
   ): Promise<SyncIngressRulesResult> {
     const existingIngress = await this.listIngressRules();
     const desiredEntries = this.sortServices(services).map((service: ServiceEntry) => {
@@ -313,6 +320,13 @@ export class CloudflareTunnelService {
       await this.updateIngressRules(nextIngress);
     }
 
+    for (const result of results) {
+      await onProgress?.({
+        scope: "ingress",
+        result,
+      });
+    }
+
     return {
       lockState: Object.fromEntries(
         desiredEntries.map((entry) => [entry.service.id, entry.desiredState]),
@@ -324,6 +338,7 @@ export class CloudflareTunnelService {
   private async syncPublicDnsRecords(
     services: ServiceEntry[],
     previousManagedPublicDns: ManagedCloudflareTunnelServerState["publicDns"],
+    onProgress?: CloudflareTunnelSyncProgressHandler,
   ): Promise<SyncPublicDnsRoutesResult> {
     const results: CloudflarePublicDnsSyncResult[] = [];
     const lockStateEntries: Array<[string, ManagedCloudflarePublicDnsState]> = [];
@@ -352,7 +367,7 @@ export class CloudflareTunnelService {
       }
 
       desiredHostnamesByServiceId.set(service.id, hostname);
-      results.push({
+      const result: CloudflarePublicDnsSyncResult = {
         action,
         hostname,
         desiredTunnelId: this.tunnelId,
@@ -361,6 +376,12 @@ export class CloudflareTunnelService {
         service,
         serviceId: service.id,
         server: this.server,
+      };
+
+      results.push(result);
+      await onProgress?.({
+        scope: "publicDns",
+        result,
       });
       lockStateEntries.push([
         service.id,
@@ -379,7 +400,7 @@ export class CloudflareTunnelService {
 
     for (const [serviceId, recordState] of removedManagedEntries) {
       const deletedRecordIds = await this.deleteManagedDnsRecords(recordState);
-      results.push({
+      const result: CloudflarePublicDnsSyncResult = {
         action: "delete",
         hostname: recordState.hostname,
         desiredTunnelId: this.tunnelId,
@@ -387,6 +408,12 @@ export class CloudflareTunnelService {
         recordId: deletedRecordIds[0],
         serviceId,
         server: this.server,
+      };
+
+      results.push(result);
+      await onProgress?.({
+        scope: "publicDns",
+        result,
       });
     }
 

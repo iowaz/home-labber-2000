@@ -55,7 +55,7 @@ export class AdGuardHomeDnsService {
             ...plan,
           };
         } finally {
-          onProgress?.({
+          await onProgress?.({
             ...plan,
           });
         }

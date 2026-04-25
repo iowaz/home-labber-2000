@@ -2,7 +2,10 @@ import Emittery from "emittery";
 
 import type { HomelabConfig, ServerEntry, ServiceEntry } from "../config/types.ts";
 import type { CaddyApplyResult } from "../services/caddy/types.ts";
-import type { CloudflareTunnelSyncResult } from "../services/cloudflare/types.ts";
+import type {
+  CloudflareTunnelSyncProgress,
+  CloudflareTunnelSyncResult,
+} from "../services/cloudflare/types.ts";
 import type { DnsRewriteSyncResult } from "../services/dns/types.ts";
 
 export interface ApplyOptions {
@@ -56,8 +59,20 @@ export interface ApplyCloudflareDryRunEvent extends ApplyTargetEvent {
   publicDnsEnabled: boolean;
 }
 
+export interface ApplyCloudflareSyncStartEvent extends ApplyTargetEvent {
+  publicDnsEnabled: boolean;
+}
+
+export interface ApplyCloudflareSyncProgressEvent extends ApplyTargetEvent {
+  progress: CloudflareTunnelSyncProgress;
+}
+
 export interface ApplyCloudflareSyncSuccessEvent extends ApplyTargetEvent {
   result: CloudflareTunnelSyncResult;
+}
+
+export interface ApplyDnsSyncProgressEvent extends ApplyTargetEvent {
+  result: DnsRewriteSyncResult;
 }
 
 export interface ApplyTargetErrorEvent extends ApplyTargetEvent {
@@ -79,11 +94,13 @@ export const APPLY_COMMAND_EVENTS = {
   caddySyncSuccess: "caddy-sync-success",
   caddySyncFailed: "caddy-sync-failed",
   cloudflareSyncStart: "cloudflare-sync-start",
+  cloudflareSyncProgress: "cloudflare-sync-progress",
   cloudflareDryRun: "cloudflare-dry-run",
   cloudflareSyncSkipped: "cloudflare-sync-skipped",
   cloudflareSyncSuccess: "cloudflare-sync-success",
   cloudflareSyncFailed: "cloudflare-sync-failed",
   dnsSyncStart: "dns-sync-start",
+  dnsSyncProgress: "dns-sync-progress",
   dnsDryRun: "dns-dry-run",
   dnsSyncSkipped: "dns-sync-skipped",
   dnsSyncSuccess: "dns-sync-success",
@@ -100,12 +117,14 @@ export interface ApplyCommandEvents {
   [APPLY_COMMAND_EVENTS.caddySyncSkipped]: ApplyTargetSkippedEvent;
   [APPLY_COMMAND_EVENTS.caddySyncSuccess]: ApplyCaddySyncSuccessEvent;
   [APPLY_COMMAND_EVENTS.caddySyncFailed]: ApplyTargetErrorEvent;
-  [APPLY_COMMAND_EVENTS.cloudflareSyncStart]: ApplyTargetEvent;
+  [APPLY_COMMAND_EVENTS.cloudflareSyncStart]: ApplyCloudflareSyncStartEvent;
+  [APPLY_COMMAND_EVENTS.cloudflareSyncProgress]: ApplyCloudflareSyncProgressEvent;
   [APPLY_COMMAND_EVENTS.cloudflareDryRun]: ApplyCloudflareDryRunEvent;
   [APPLY_COMMAND_EVENTS.cloudflareSyncSkipped]: ApplyTargetSkippedEvent;
   [APPLY_COMMAND_EVENTS.cloudflareSyncSuccess]: ApplyCloudflareSyncSuccessEvent;
   [APPLY_COMMAND_EVENTS.cloudflareSyncFailed]: ApplyTargetErrorEvent;
   [APPLY_COMMAND_EVENTS.dnsSyncStart]: ApplyTargetEvent;
+  [APPLY_COMMAND_EVENTS.dnsSyncProgress]: ApplyDnsSyncProgressEvent;
   [APPLY_COMMAND_EVENTS.dnsDryRun]: ApplyTargetEvent;
   [APPLY_COMMAND_EVENTS.dnsSyncSkipped]: ApplyTargetSkippedEvent;
   [APPLY_COMMAND_EVENTS.dnsSyncSuccess]: ApplyDnsSyncSuccessEvent;

@@ -217,6 +217,7 @@ export class ApplyCommandRunner {
   ): Promise<void> {
     await eventBus.emit(APPLY_COMMAND_EVENTS.cloudflareSyncStart, {
       target,
+      publicDnsEnabled: config.cloudflareTunnels.options.sync_public_dns,
     });
 
     try {
@@ -253,7 +254,16 @@ export class ApplyCommandRunner {
       }
 
       await this.delayIfSlowRunning(options.slowRunning);
-      const result = await cloudflareService.syncPublishedApplications(target.services, previousState);
+      const result = await cloudflareService.syncPublishedApplications(
+        target.services,
+        previousState,
+        (progress) => {
+          return eventBus.emit(APPLY_COMMAND_EVENTS.cloudflareSyncProgress, {
+            target,
+            progress,
+          });
+        },
+      );
       this.updateCloudflareLockState(lockfile, target.server.id, result.lockState);
       await this.persistLockfile(options.lockfile, lockfile);
 
@@ -324,7 +334,21 @@ export class ApplyCommandRunner {
       }
 
       await this.delayIfSlowRunning(options.slowRunning);
-      const result = await dnsService.syncServiceRewrites(target.server, dnsServices, previousState);
+      const dnsTarget = {
+        server: target.server,
+        services: dnsServices,
+      };
+      const result = await dnsService.syncServiceRewrites(
+        target.server,
+        dnsServices,
+        previousState,
+        (rewriteResult) => {
+          return eventBus.emit(APPLY_COMMAND_EVENTS.dnsSyncProgress, {
+            target: dnsTarget,
+            result: rewriteResult,
+          });
+        },
+      );
       this.updateDnsLockState(lockfile, target.server.id, result.lockState);
       await this.persistLockfile(options.lockfile, lockfile);
 

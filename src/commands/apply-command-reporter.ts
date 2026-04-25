@@ -15,9 +15,12 @@ import type {
   ApplyCaddySyncSuccessEvent,
   ApplyCompletedEvent,
   ApplyCloudflareDryRunEvent,
+  ApplyCloudflareSyncProgressEvent,
+  ApplyCloudflareSyncStartEvent,
   ApplyCloudflareSyncSuccessEvent,
   ApplyConfigLoadedEvent,
   ApplyConfigLoadStartEvent,
+  ApplyDnsSyncProgressEvent,
   ApplyDnsSyncSuccessEvent,
   ApplyTarget,
   ApplyTargetErrorEvent,
@@ -28,11 +31,24 @@ import {
   APPLY_COMMAND_EVENTS,
 } from "./apply-command-types.ts";
 
+interface OperationProgressState {
+  failed: number;
+  operation: "cloudflare" | "dns";
+  server: ServerEntry;
+  successful: number;
+  total: number;
+}
+
 export class ApplyCliReporter {
+  private static readonly serviceLabelLength = 18;
+  private static readonly progressBarWidth = 16;
+
   private loadSpinner?: Ora;
   private caddySpinner?: Ora;
   private cloudflareSpinner?: Ora;
   private dnsSpinner?: Ora;
+  private cloudflareProgress?: OperationProgressState;
+  private dnsProgress?: OperationProgressState;
 
   public attach(eventBus: ApplyCommandEventBus): () => void {
     const unsubscribers: UnsubscribeFunction[] = [
@@ -63,6 +79,9 @@ export class ApplyCliReporter {
       eventBus.on(APPLY_COMMAND_EVENTS.cloudflareSyncStart, (event) => {
         this.onCloudflareSyncStart(event.data);
       }),
+      eventBus.on(APPLY_COMMAND_EVENTS.cloudflareSyncProgress, (event) => {
+        this.onCloudflareSyncProgress(event.data);
+      }),
       eventBus.on(APPLY_COMMAND_EVENTS.cloudflareDryRun, (event) => {
         this.onCloudflareDryRun(event.data);
       }),
@@ -77,6 +96,9 @@ export class ApplyCliReporter {
       }),
       eventBus.on(APPLY_COMMAND_EVENTS.dnsSyncStart, (event) => {
         this.onDnsSyncStart(event.data);
+      }),
+      eventBus.on(APPLY_COMMAND_EVENTS.dnsSyncProgress, (event) => {
+        this.onDnsSyncProgress(event.data);
       }),
       eventBus.on(APPLY_COMMAND_EVENTS.dnsDryRun, (event) => {
         this.onDnsDryRun(event.data);
@@ -103,15 +125,17 @@ export class ApplyCliReporter {
   }
 
   private onConfigLoadStart(_event: ApplyConfigLoadStartEvent): void {
-    this.loadSpinner = ora("Loading homelab config...").start();
+    this.loadSpinner = ora(
+      `${this.formatOperationLabel("config")} | Loading homelab config...`,
+    ).start();
   }
 
   private onConfigLoaded(event: ApplyConfigLoadedEvent): void {
     this.loadSpinner?.succeed(
-      `Loaded ${event.config.services.length} services from ${chalk.cyan(event.configDirectory)}.`,
+      `${this.formatOperationLabel("config")} | Loaded ${event.config.services.length} services from ${chalk.cyan(event.configDirectory)}.`,
     );
 
-    console.log(chalk.bold("Origins"));
+    console.log(`${this.formatOperationLabel("config")} | ${chalk.bold("Origins")}`);
     const serviceLines = this.buildServiceSummaryLines(event.config);
     for (const line of serviceLines) {
       console.log(line);
@@ -136,18 +160,20 @@ export class ApplyCliReporter {
       })
       .join(", ");
 
-    console.log(`${chalk.bold("Apply Targets")} ${summary}`);
+    console.log(`${this.formatOperationLabel("apply")} | ${chalk.bold("Targets")} ${summary}`);
   }
 
   private onCaddySyncStart({ target }: { target: ApplyTarget }): void {
     console.log(this.buildCaddyIntentLine(target.server, target.services));
-    this.caddySpinner = ora(`Building Caddy payload for ${target.server.id}...`).start();
-    this.caddySpinner.text = `Applying ${target.services.length} routes to ${target.server.id}...`;
+    this.caddySpinner = ora(
+      `${this.formatPhaseLabel("caddy")} | ${this.formatServerLabel(target.server)} | building Caddy payload...`,
+    ).start();
+    this.caddySpinner.text = `${this.formatPhaseLabel("caddy")} | ${this.formatServerLabel(target.server)} | applying ${target.services.length} route(s)...`;
   }
 
   private onCaddyDryRun(event: ApplyCaddyDryRunEvent): void {
     this.caddySpinner?.stop();
-    console.log(chalk.gray(`POST ${event.loadUrl}`));
+    console.log(`${this.formatPhaseLabel("caddy")} | ${chalk.gray(`POST ${event.loadUrl}`)}`);
     console.log(this.buildCaddyDryRunResultLine(event.target.server, event.target.services));
   }
 
@@ -164,46 +190,100 @@ export class ApplyCliReporter {
   }
 
   private onCaddySyncFailed(event: ApplyTargetErrorEvent): void {
-    this.caddySpinner?.fail(`Caddy update failed for ${event.target.server.id}.`);
+    this.caddySpinner?.fail(
+      `${this.formatPhaseLabel("caddy")} | ${this.formatServerLabel(event.target.server)} | update failed.`,
+    );
   }
 
-  private onCloudflareSyncStart({ target }: { target: ApplyTarget }): void {
+  private onCloudflareSyncStart(event: ApplyCloudflareSyncStartEvent): void {
+    const { target } = event;
     console.log(this.buildCloudflareIntentLine(target.server, target.services));
-    this.cloudflareSpinner = ora(`Syncing Cloudflare Tunnel routes for ${target.server.id}...`).start();
+    this.cloudflareProgress = this.createProgressState(
+      "cloudflare",
+      target.server,
+      target.services.length * (event.publicDnsEnabled ? 2 : 1),
+    );
+    this.cloudflareSpinner = ora(
+      `${this.formatPhaseLabel("cloudflare")} | ${this.formatServerLabel(target.server)} | syncing Cloudflare Tunnel routes...`,
+    ).start();
+  }
+
+  private onCloudflareSyncProgress(_event: ApplyCloudflareSyncProgressEvent): void {
+    if (!this.cloudflareProgress) {
+      return;
+    }
+
+    this.cloudflareProgress.successful += 1;
+    this.refreshProgressSpinner(
+      this.cloudflareSpinner,
+      this.cloudflareProgress,
+      "syncing Cloudflare Tunnel routes",
+    );
   }
 
   private onCloudflareDryRun(event: ApplyCloudflareDryRunEvent): void {
     this.cloudflareSpinner?.stop();
-    console.log(this.buildCloudflareDryRunResultLine(event.target.server, event.target.services, event.publicDnsEnabled));
+    console.log(
+      this.buildCloudflareDryRunResultLine(
+        event.target.server,
+        event.target.services,
+        event.publicDnsEnabled,
+      ),
+    );
   }
 
   private onCloudflareSyncSuccess(event: ApplyCloudflareSyncSuccessEvent): void {
     this.cloudflareSpinner?.stop();
+    this.cloudflareProgress = undefined;
     console.log(this.buildCloudflareResultLine(event.target.server, event.result));
 
-    for (const result of event.result.ingress) {
-      console.log(chalk.dim(this.formatCloudflareIngressResult(result)));
-    }
+    this.logCloudflareIngressResults(event.result.ingress);
 
     if (event.result.publicDnsEnabled) {
-      for (const result of event.result.publicDns) {
-        console.log(chalk.dim(this.formatCloudflarePublicDnsResult(result)));
-      }
+      this.logCloudflarePublicDnsResults(event.result.publicDns);
     }
   }
 
   private onCloudflareSyncSkipped(event: ApplyTargetSkippedEvent): void {
     this.cloudflareSpinner?.stop();
+    this.cloudflareProgress = undefined;
     console.log(this.buildSkippedResultLine("cloudflare", event.target.server, event.reason));
   }
 
   private onCloudflareSyncFailed(event: ApplyTargetErrorEvent): void {
-    this.cloudflareSpinner?.fail(`Cloudflare Tunnel sync failed for ${event.target.server.id}.`);
+    if (this.cloudflareProgress) {
+      this.cloudflareProgress.failed += 1;
+      this.refreshProgressSpinner(
+        this.cloudflareSpinner,
+        this.cloudflareProgress,
+        "syncing Cloudflare Tunnel routes",
+      );
+    }
+    this.cloudflareSpinner?.fail(
+      `${this.formatPhaseLabel("cloudflare")} | ${this.formatServerLabel(event.target.server)} | sync failed.`,
+    );
+    this.cloudflareProgress = undefined;
   }
 
   private onDnsSyncStart({ target }: { target: ApplyTarget }): void {
     console.log(this.buildDnsIntentLine(target.server, target.services));
-    this.dnsSpinner = ora(`Syncing AdGuard DNS rewrites for ${target.server.id}...`).start();
+    this.dnsProgress = this.createProgressState("dns", target.server, target.services.length);
+    this.dnsSpinner = ora(
+      `${this.formatPhaseLabel("dns")} | ${this.formatServerLabel(target.server)} | syncing AdGuard DNS rewrites...`,
+    ).start();
+  }
+
+  private onDnsSyncProgress(_event: ApplyDnsSyncProgressEvent): void {
+    if (!this.dnsProgress) {
+      return;
+    }
+
+    this.dnsProgress.successful += 1;
+    this.refreshProgressSpinner(
+      this.dnsSpinner,
+      this.dnsProgress,
+      "syncing AdGuard DNS rewrites",
+    );
   }
 
   private onDnsDryRun({ target }: { target: ApplyTarget }): void {
@@ -212,24 +292,37 @@ export class ApplyCliReporter {
 
   private onDnsSyncSuccess(event: ApplyDnsSyncSuccessEvent): void {
     this.dnsSpinner?.stop();
+    this.dnsProgress = undefined;
     console.log(this.buildDnsResultLine(event.target.server, event.results));
 
-    for (const result of event.results) {
-      console.log(chalk.dim(this.formatDnsResult(result)));
-    }
+    this.logDnsResults(event.results);
   }
 
   private onDnsSyncSkipped(event: ApplyTargetSkippedEvent): void {
     this.dnsSpinner?.stop();
+    this.dnsProgress = undefined;
     console.log(this.buildSkippedResultLine("dns", event.target.server, event.reason));
   }
 
   private onDnsSyncFailed(event: ApplyTargetErrorEvent): void {
-    this.dnsSpinner?.fail(`DNS rewrite sync failed for ${event.target.server.id}.`);
+    if (this.dnsProgress) {
+      this.dnsProgress.failed += 1;
+      this.refreshProgressSpinner(
+        this.dnsSpinner,
+        this.dnsProgress,
+        "syncing AdGuard DNS rewrites",
+      );
+    }
+    this.dnsSpinner?.fail(
+      `${this.formatPhaseLabel("dns")} | ${this.formatServerLabel(event.target.server)} | rewrite sync failed.`,
+    );
+    this.dnsProgress = undefined;
   }
 
   private onCompleted(event: ApplyCompletedEvent): void {
-    console.log(chalk.green(`Finished APPLY for ${event.processedTargets} publication target(s).`));
+    console.log(
+      `${this.formatOperationLabel("apply")} | ${chalk.green(`Finished APPLY for ${event.processedTargets} publication target(s).`)}`,
+    );
   }
 
   private buildServiceSummaryLines(config: HomelabConfig): string[] {
@@ -249,7 +342,7 @@ export class ApplyCliReporter {
       leftId.localeCompare(rightId),
     );
 
-    originEntries.forEach(([originServerId, services], index: number) => {
+    originEntries.forEach(([originServerId, services]) => {
       const originServer = serversById.get(originServerId);
       if (!originServer) {
         throw new Error(
@@ -273,10 +366,6 @@ export class ApplyCliReporter {
 
         lines.push(this.buildServiceDetailLine(service, caddyServer, cloudflareServer));
       }
-
-      if (index < originEntries.length - 1) {
-        lines.push("");
-      }
     });
 
     return lines;
@@ -284,7 +373,7 @@ export class ApplyCliReporter {
 
   private buildOriginHeaderLine(originServer: ServerEntry, serviceCount: number): string {
     const countLabel = serviceCount === 1 ? "service" : "services";
-    return `${chalk.bold(originServer.id)} ${chalk.gray(`(${originServer.description})`)} ${chalk.yellow(`:${serviceCount} ${countLabel}`)}`;
+    return `${this.formatOperationLabel("config")} | ${chalk.bold(originServer.id)} ${chalk.gray(`(${originServer.description})`)} ${chalk.yellow(`:${serviceCount} ${countLabel}`)}`;
   }
 
   private buildServiceDetailLine(
@@ -296,6 +385,7 @@ export class ApplyCliReporter {
     const cloudflarePublication = service.publish["cloudflare-tunnel"];
 
     const details: string[] = [
+      this.formatServiceLabel(service),
       chalk.white(service.id),
       chalk.gray(`:${service.origin.port}`),
     ];
@@ -316,67 +406,112 @@ export class ApplyCliReporter {
       );
     }
 
-    details.push(chalk.gray(service.description));
-
-    return `  ${details.join("  ")}`;
+    return `${this.formatOperationLabel("config")} | ${details.join("  ")}`;
   }
 
   private formatDnsResult(result: DnsRewriteSyncResult): string {
-    const actionColor =
-      result.action === "create"
-        ? chalk.green
-        : result.action === "delete"
-          ? chalk.red
-        : result.action === "update"
-          ? chalk.yellow
-          : chalk.gray;
-    const actionLabel = actionColor(result.action.toUpperCase());
+    const actionLabel = this.formatActionLabel(result.action);
     const currentAnswer =
       result.currentAnswers.length > 0 ? result.currentAnswers.join(", ") : "missing";
+    const prefix = `${this.formatPhaseLabel("dns")} | ${this.formatServiceLabel(result.service, result.serviceId)} |`;
 
     if (result.action === "delete") {
-      return `${result.domain} | ${actionLabel} | removing ${currentAnswer}`;
+      return `${prefix} ${result.domain} | ${actionLabel} | removing ${currentAnswer}`;
     }
 
-    return `${result.domain} | ${actionLabel} | ${currentAnswer} -> ${result.desiredAnswer}`;
+    return `${prefix} ${result.domain} | ${actionLabel} | ${currentAnswer} -> ${result.desiredAnswer}`;
   }
 
   private formatCloudflareIngressResult(result: CloudflareTunnelIngressSyncResult): string {
-    const actionColor =
-      result.action === "create"
-        ? chalk.green
-        : result.action === "delete"
-          ? chalk.red
-        : result.action === "update"
-          ? chalk.yellow
-          : chalk.gray;
-    const actionLabel = actionColor(result.action.toUpperCase());
+    const actionLabel = this.formatActionLabel(result.action);
     const currentService = result.currentService ?? "missing";
+    const prefix = `${this.formatPhaseLabel("cloudflare")} | ${this.formatServiceLabel(result.service, result.serviceId)} |`;
 
     if (result.action === "delete") {
-      return `${result.hostname} | ${actionLabel} | removing ${currentService}`;
+      return `${prefix} ${result.hostname} | ${actionLabel} | removing ${currentService}`;
     }
 
-    return `${result.hostname} | ${actionLabel} | ${currentService} -> ${result.desiredService}`;
+    return `${prefix} ${result.hostname} | ${actionLabel} | ${currentService} -> ${result.desiredService}`;
   }
 
   private formatCloudflarePublicDnsResult(result: CloudflarePublicDnsSyncResult): string {
-    const actionColor =
-      result.action === "create"
-        ? chalk.green
-        : result.action === "delete"
-          ? chalk.red
-        : result.action === "update"
-          ? chalk.yellow
-          : chalk.gray;
-    const actionLabel = actionColor(result.action.toUpperCase());
+    const actionLabel = this.formatActionLabel(result.action);
     const currentTunnel = result.currentTunnelId ?? "missing";
+    const prefix = `${this.formatOperationLabel("cloudflareDns")} | ${this.formatServiceLabel(result.service, result.serviceId)} |`;
 
     if (result.action === "delete") {
-      return `DNS ${result.hostname} | ${actionLabel} | removing ${currentTunnel}`;
+      return `${prefix} ${result.hostname} | ${actionLabel} | removing ${currentTunnel}`;
     }
 
-    return `DNS ${result.hostname} | ${actionLabel} | ${currentTunnel} -> ${result.desiredTunnelId}`;
+    return `${prefix} ${result.hostname} | ${actionLabel} | ${currentTunnel} -> ${result.desiredTunnelId}`;
+  }
+
+  private logDnsResults(results: DnsRewriteSyncResult[]): void {
+    this.logActionableResults(
+      results,
+      (result: DnsRewriteSyncResult): string => this.formatDnsResult(result),
+      this.formatPhaseLabel("dns"),
+      "domain rewrite",
+    );
+  }
+
+  private logCloudflareIngressResults(results: CloudflareTunnelIngressSyncResult[]): void {
+    this.logActionableResults(
+      results,
+      (result: CloudflareTunnelIngressSyncResult): string =>
+        this.formatCloudflareIngressResult(result),
+      this.formatPhaseLabel("cloudflare"),
+      "ingress",
+    );
+  }
+
+  private logCloudflarePublicDnsResults(results: CloudflarePublicDnsSyncResult[]): void {
+    this.logActionableResults(
+      results,
+      (result: CloudflarePublicDnsSyncResult): string =>
+        this.formatCloudflarePublicDnsResult(result),
+      this.formatOperationLabel("cloudflareDns"),
+      "public DNS",
+    );
+  }
+
+  private logActionableResults<T extends { action: "create" | "delete" | "update" | "unchanged" }>(
+    results: T[],
+    formatResult: (result: T) => string,
+    operationLabel: string,
+    noun: string,
+  ): void {
+    let unchangedCount = 0;
+
+    for (const result of results) {
+      if (result.action === "unchanged") {
+        unchangedCount += 1;
+        continue;
+      }
+
+      console.log(chalk.dim(formatResult(result)));
+    }
+
+    if (unchangedCount > 0) {
+      console.log(
+        chalk.dim(
+          `${operationLabel} | ${chalk.gray(`${unchangedCount} ${noun} operation(s) UNCHANGED`)}`,
+        ),
+      );
+    }
+  }
+
+  private formatActionLabel(action: "create" | "delete" | "update" | "unchanged"): string {
+    const actionColor =
+      action === "create"
+        ? chalk.green
+        : action === "delete"
+          ? chalk.red
+        : action === "update"
+          ? chalk.yellow
+          : chalk.gray;
+
+    return actionColor(action.toUpperCase());
   }
 
   private summarizeDnsResults(results: DnsRewriteSyncResult[]): string {
@@ -421,6 +556,24 @@ export class ApplyCliReporter {
     ].join(", ");
   }
 
+  private formatOperationLabel(
+    operation: "apply" | "caddy" | "cloudflare" | "cloudflareDns" | "config" | "dns",
+  ): string {
+    if (operation === "apply") {
+      return chalk.green("Apply");
+    }
+
+    if (operation === "config") {
+      return chalk.cyan("Config");
+    }
+
+    if (operation === "cloudflareDns") {
+      return chalk.yellow("Cloudflare DNS");
+    }
+
+    return this.formatPhaseLabel(operation);
+  }
+
   private formatPhaseLabel(phase: "caddy" | "cloudflare" | "dns"): string {
     if (phase === "caddy") {
       return chalk.blue("Caddy");
@@ -435,6 +588,84 @@ export class ApplyCliReporter {
 
   private formatServerLabel(server: ServerEntry): string {
     return `${chalk.blue(server.id)} ${chalk.gray(`(${server.description})`)}`;
+  }
+
+  private formatServiceLabel(service?: ServiceEntry, fallbackId?: string): string {
+    const label = this.truncateLabel(
+      service?.description ?? fallbackId ?? "managed service",
+      ApplyCliReporter.serviceLabelLength,
+    );
+
+    return chalk.cyan(label.padEnd(ApplyCliReporter.serviceLabelLength));
+  }
+
+  private truncateLabel(value: string, maxLength: number): string {
+    const normalizedValue = value.trim();
+    if (normalizedValue.length <= maxLength) {
+      return normalizedValue;
+    }
+
+    return `${normalizedValue.slice(0, maxLength - 3)}...`;
+  }
+
+  private createProgressState(
+    operation: "cloudflare" | "dns",
+    server: ServerEntry,
+    total: number,
+  ): OperationProgressState {
+    return {
+      failed: 0,
+      operation,
+      server,
+      successful: 0,
+      total: Math.max(total, 1),
+    };
+  }
+
+  private refreshProgressSpinner(
+    spinner: Ora | undefined,
+    progress: OperationProgressState,
+    label: string,
+  ): void {
+    if (!spinner) {
+      return;
+    }
+
+    spinner.text = this.buildProgressLine(progress, label);
+  }
+
+  private buildProgressLine(progress: OperationProgressState, label: string): string {
+    const total = Math.max(progress.total, progress.successful + progress.failed);
+
+    if (total !== progress.total) {
+      progress.total = total;
+    }
+
+    return [
+      this.formatPhaseLabel(progress.operation),
+      this.formatServerLabel(progress.server),
+      `${label} ${this.formatProgressBar(progress)}`,
+    ].join(" | ");
+  }
+
+  private formatProgressBar(progress: OperationProgressState): string {
+    const total = Math.max(progress.total, progress.successful + progress.failed);
+    const completed = Math.min(progress.successful + progress.failed, total);
+    const filledCount = Math.round((completed / total) * ApplyCliReporter.progressBarWidth);
+    const emptyCount = ApplyCliReporter.progressBarWidth - filledCount;
+    const bar = [
+      chalk.green("=".repeat(filledCount)),
+      chalk.gray("-".repeat(emptyCount)),
+    ].join("");
+
+    return [
+      `${chalk.gray("[")}${bar}${chalk.gray("]")}`,
+      chalk.green(String(progress.successful)),
+      chalk.gray("|"),
+      chalk.cyan(String(total)),
+      chalk.red("!"),
+      chalk.red(String(progress.failed)),
+    ].join(" ");
   }
 
   private buildCaddyIntentLine(server: ServerEntry, services: ServiceEntry[]): string {

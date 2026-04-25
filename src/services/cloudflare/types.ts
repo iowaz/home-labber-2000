@@ -43,6 +43,20 @@ export interface CloudflareTunnelSyncResult {
   lockState: ManagedCloudflareTunnelServerState;
 }
 
+export type CloudflareTunnelSyncProgress =
+  | {
+      scope: "ingress";
+      result: CloudflareTunnelIngressSyncResult;
+    }
+  | {
+      scope: "publicDns";
+      result: CloudflarePublicDnsSyncResult;
+    };
+
+export type CloudflareTunnelSyncProgressHandler = (
+  progress: CloudflareTunnelSyncProgress,
+) => Promise<void> | void;
+
 export type CloudflareTunnelServiceFactory = (
   config: CloudflareTunnelsConfig,
   server: ServerEntry,

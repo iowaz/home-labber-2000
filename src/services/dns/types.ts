@@ -28,6 +28,8 @@ export interface DnsSyncResult {
   results: DnsRewriteSyncResult[];
 }
 
-export type DnsSyncProgressHandler = (result: DnsRewriteSyncResult) => void;
+export type DnsSyncProgressHandler = (
+  result: DnsRewriteSyncResult,
+) => Promise<void> | void;
 
 export type DnsServiceFactory = (config: DnsConfig) => AdGuardHomeDnsService;
