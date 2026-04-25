@@ -222,7 +222,7 @@
   publish:
     caddy:
       via: raspberry-pi-5-ethernet
-      hostname: jellyfin.rede.local
+      hostname: jellyfin3.rede.local
     cloudflare-tunnel:
       via: mac
       hostname: jellyfin.mac.diogocasteluber.com.br

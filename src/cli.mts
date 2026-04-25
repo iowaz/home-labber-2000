@@ -12,6 +12,7 @@ import type { CliCommand } from "./commands/types.ts";
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultConfigDirectory = path.resolve(currentDirectory, "../config");
 const defaultEnvPath = path.resolve(currentDirectory, "../.env");
+const defaultLockfilePath = path.resolve(currentDirectory, "../homelab.lock.json");
 
 try {
   process.loadEnvFile(defaultEnvPath);
@@ -22,7 +23,7 @@ try {
   }
 }
 
-const container = buildContainer(defaultConfigDirectory);
+const container = buildContainer(defaultConfigDirectory, defaultLockfilePath);
 
 const program = new Command();
 

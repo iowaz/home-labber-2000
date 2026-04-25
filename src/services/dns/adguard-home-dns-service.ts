@@ -1,16 +1,19 @@
 import ky from "ky";
 
 import type { DnsConfig, ServerEntry, ServiceEntry } from "../../config/types.ts";
+import type { ManagedDnsServerState } from "../../lockfile/types.ts";
 import type {
   AdGuardRewriteEntry,
   DnsRewriteAction,
   DnsRewritePlan,
+  DnsSyncResult,
   DnsRewriteSyncResult,
   DnsSyncProgressHandler,
 } from "./types.ts";
 
 interface ServiceRewritePlan extends DnsRewritePlan {
-  service: ServiceEntry;
+  service?: ServiceEntry;
+  serviceId: string;
   server: ServerEntry;
 }
 
@@ -39,12 +42,12 @@ export class AdGuardHomeDnsService {
   public async syncServiceRewrites(
     server: ServerEntry,
     services: ServiceEntry[],
+    previousState?: ManagedDnsServerState,
     onProgress?: DnsSyncProgressHandler,
-  ): Promise<DnsRewriteSyncResult[]> {
+  ): Promise<DnsSyncResult> {
     const existing = await this.listRewrites();
-    const plans = this.planServiceRewrites(server, services, existing);
-
-    return Promise.all(
+    const plans = this.planServiceRewrites(server, services, existing, previousState);
+    const results = await Promise.all(
       plans.map(async (plan: ServiceRewritePlan): Promise<DnsRewriteSyncResult> => {
         try {
           await this.applyPlan(plan);
@@ -58,6 +61,38 @@ export class AdGuardHomeDnsService {
         }
       }),
     );
+
+    return {
+      lockState: this.buildManagedState(server, services),
+      results,
+    };
+  }
+
+  public buildManagedState(server: ServerEntry, services: ServiceEntry[]): ManagedDnsServerState {
+    return {
+      provider: "ADGUARD_HOME",
+      services: Object.fromEntries(
+        services
+          .slice()
+          .sort((left: ServiceEntry, right: ServiceEntry) => left.id.localeCompare(right.id))
+          .map((service: ServiceEntry) => {
+            const domain = service.publish.caddy?.hostname;
+            if (!domain) {
+              throw new Error(
+                `Service '${service.id}' does not define publish.caddy.hostname for DNS sync.`,
+              );
+            }
+
+            return [
+              service.id,
+              {
+                domain,
+                answer: server.ip,
+              },
+            ];
+          }),
+      ),
+    };
   }
 
   private async listRewrites(): Promise<AdGuardRewriteEntry[]> {
@@ -74,6 +109,7 @@ export class AdGuardHomeDnsService {
     server: ServerEntry,
     services: ServiceEntry[],
     existing: AdGuardRewriteEntry[],
+    previousState?: ManagedDnsServerState,
   ): ServiceRewritePlan[] {
     const rewritesByDomain = new Map<string, AdGuardRewriteEntry[]>();
 
@@ -83,10 +119,12 @@ export class AdGuardHomeDnsService {
       rewritesByDomain.set(rewrite.domain, domainRewrites);
     }
 
-    return services.map((service: ServiceEntry): ServiceRewritePlan => {
+    const desiredPlans = services.map((service: ServiceEntry): ServiceRewritePlan => {
       const domain = service.publish.caddy?.hostname;
       if (!domain) {
-        throw new Error(`Service '${service.id}' does not define publish.caddy.hostname for DNS sync.`);
+        throw new Error(
+          `Service '${service.id}' does not define publish.caddy.hostname for DNS sync.`,
+        );
       }
 
       const desiredAnswer = server.ip;
@@ -96,6 +134,7 @@ export class AdGuardHomeDnsService {
 
       return {
         service,
+        serviceId: service.id,
         server,
         domain,
         desiredAnswer,
@@ -103,6 +142,32 @@ export class AdGuardHomeDnsService {
         action,
       };
     });
+
+    const desiredByServiceId = new Map<string, string>(
+      services.map((service: ServiceEntry): [string, string] => {
+        const domain = service.publish.caddy?.hostname;
+        if (!domain) {
+          throw new Error(
+            `Service '${service.id}' does not define publish.caddy.hostname for DNS sync.`,
+          );
+        }
+
+        return [service.id, domain];
+      }),
+    );
+    const deletionPlans = Object.entries(previousState?.services ?? {})
+      .filter(([serviceId, serviceState]) => desiredByServiceId.get(serviceId) !== serviceState.domain)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([serviceId, serviceState]): ServiceRewritePlan => ({
+        serviceId,
+        server,
+        domain: serviceState.domain,
+        desiredAnswer: serviceState.answer,
+        currentAnswers: [serviceState.answer],
+        action: "delete",
+      }));
+
+    return [...desiredPlans, ...deletionPlans];
   }
 
   private determineAction(currentAnswers: string[], desiredAnswer: string): DnsRewriteAction {
@@ -123,6 +188,16 @@ export class AdGuardHomeDnsService {
     }
 
     try {
+      if (plan.action === "delete") {
+        await this.client.post("rewrite/delete", {
+          json: {
+            domain: plan.domain,
+            answer: plan.desiredAnswer,
+          },
+        });
+        return;
+      }
+
       if (plan.action === "update") {
         await Promise.all(
           plan.currentAnswers.map((answer: string) =>

@@ -1,0 +1,244 @@
+{
+  "version": 1,
+  "updatedAt": "2026-04-25T02:25:43.883Z",
+  "caddy": {
+    "raspberry-pi-5-ethernet": {
+      "adminUrl": "http://127.0.0.1:2019/load",
+      "payloadHash": "sha256:f9f1b439c4e7dcc9c26b2efc2760e475fd8d6b01f78cdf7a706c986bc59c24f5",
+      "services": {
+        "adguard": {
+          "hostnames": [
+            "adguard.rede.local"
+          ],
+          "upstream": "192.168.31.13:3001"
+        },
+        "adguardhome": {
+          "hostnames": [
+            "adguardhome.rede.local"
+          ],
+          "upstream": "192.168.31.13:3000"
+        },
+        "bazarr": {
+          "hostnames": [
+            "bazarr.rede.local"
+          ],
+          "upstream": "192.168.31.13:3103"
+        },
+        "flaresolverr": {
+          "hostnames": [
+            "flaresolverr.rede.local"
+          ],
+          "upstream": "192.168.31.13:8191"
+        },
+        "flood": {
+          "hostnames": [
+            "flood.rede.local"
+          ],
+          "upstream": "192.168.31.13:3115"
+        },
+        "grafana": {
+          "hostnames": [
+            "grafana.rede.local"
+          ],
+          "upstream": "192.168.31.13:3110"
+        },
+        "jellyfin": {
+          "hostnames": [
+            "jellyfin3.rede.local"
+          ],
+          "upstream": "192.168.31.11:8096"
+        },
+        "node-exporter": {
+          "hostnames": [
+            "node_exporter.rede.local"
+          ],
+          "upstream": "192.168.31.13:9100"
+        },
+        "prometheus": {
+          "hostnames": [
+            "prometheus.rede.local"
+          ],
+          "upstream": "192.168.31.13:9090"
+        },
+        "prowlarr": {
+          "hostnames": [
+            "prowlarr.rede.local"
+          ],
+          "upstream": "192.168.31.13:3107"
+        },
+        "qbittorrent": {
+          "hostnames": [
+            "qbittorrent.rede.local",
+            "torrent.rede.local"
+          ],
+          "upstream": "192.168.31.11:8872"
+        },
+        "qbittorrent-exporter": {
+          "hostnames": [
+            "qbittorrent-exporter.rede.local"
+          ],
+          "upstream": "192.168.31.13:17871"
+        },
+        "radarr": {
+          "hostnames": [
+            "radarr.rede.local"
+          ],
+          "upstream": "192.168.31.11:7878"
+        },
+        "readarr": {
+          "hostnames": [
+            "readarr.rede.local"
+          ],
+          "upstream": "192.168.31.13:3104"
+        },
+        "sonarr": {
+          "hostnames": [
+            "sonarr.rede.local"
+          ],
+          "upstream": "192.168.31.11:8989"
+        },
+        "transmission": {
+          "hostnames": [
+            "transmission.rede.local"
+          ],
+          "upstream": "192.168.31.13:9091"
+        }
+      }
+    }
+  },
+  "cloudflareTunnel": {
+    "mac": {
+      "tunnelId": "7c2cee41-2013-4e50-adf6-4b10e24b5f2e",
+      "ingress": {
+        "jellyfin": {
+          "hostname": "jellyfin.mac.diogocasteluber.com.br",
+          "service": "http://localhost:8096"
+        },
+        "qbittorrent": {
+          "hostname": "qbittorrent.mac.diogocasteluber.com.br",
+          "service": "http://localhost:8872"
+        },
+        "radarr": {
+          "hostname": "radarr.mac.diogocasteluber.com.br",
+          "service": "http://localhost:7878"
+        },
+        "sonarr": {
+          "hostname": "sonarr.mac.diogocasteluber.com.br",
+          "service": "http://localhost:8989"
+        }
+      },
+      "publicDns": {
+        "jellyfin": {
+          "hostname": "jellyfin.mac.diogocasteluber.com.br",
+          "tunnelId": "7c2cee41-2013-4e50-adf6-4b10e24b5f2e",
+          "zoneId": "b5789fc0ca9e748a6f37f3401cc2a9b0",
+          "recordId": "d370b8a4a9e8ca4e44882d70ba81e4e5"
+        },
+        "qbittorrent": {
+          "hostname": "qbittorrent.mac.diogocasteluber.com.br",
+          "tunnelId": "7c2cee41-2013-4e50-adf6-4b10e24b5f2e",
+          "zoneId": "b5789fc0ca9e748a6f37f3401cc2a9b0",
+          "recordId": "f3100b3d8f8ae47619b2a92338a7c209"
+        },
+        "radarr": {
+          "hostname": "radarr.mac.diogocasteluber.com.br",
+          "tunnelId": "7c2cee41-2013-4e50-adf6-4b10e24b5f2e",
+          "zoneId": "b5789fc0ca9e748a6f37f3401cc2a9b0",
+          "recordId": "c4443970b3ddcf42b6bb3dc3987ead65"
+        },
+        "sonarr": {
+          "hostname": "sonarr.mac.diogocasteluber.com.br",
+          "tunnelId": "7c2cee41-2013-4e50-adf6-4b10e24b5f2e",
+          "zoneId": "b5789fc0ca9e748a6f37f3401cc2a9b0",
+          "recordId": "1abfa660251ce99be33cf181049e9661"
+        }
+      }
+    },
+    "raspberry-pi-5-ethernet": {
+      "tunnelId": "11b10bed-8136-4506-b61a-aa87897d6a21",
+      "ingress": {
+        "adguard": {
+          "hostname": "adguard.pi.diogocasteluber.com.br",
+          "service": "http://localhost:3001"
+        }
+      },
+      "publicDns": {
+        "adguard": {
+          "hostname": "adguard.pi.diogocasteluber.com.br",
+          "tunnelId": "11b10bed-8136-4506-b61a-aa87897d6a21"
+        }
+      }
+    }
+  },
+  "dns": {
+    "raspberry-pi-5-ethernet": {
+      "provider": "ADGUARD_HOME",
+      "services": {
+        "adguard": {
+          "domain": "adguard.rede.local",
+          "answer": "192.168.31.13"
+        },
+        "adguardhome": {
+          "domain": "adguardhome.rede.local",
+          "answer": "192.168.31.13"
+        },
+        "bazarr": {
+          "domain": "bazarr.rede.local",
+          "answer": "192.168.31.13"
+        },
+        "flaresolverr": {
+          "domain": "flaresolverr.rede.local",
+          "answer": "192.168.31.13"
+        },
+        "flood": {
+          "domain": "flood.rede.local",
+          "answer": "192.168.31.13"
+        },
+        "grafana": {
+          "domain": "grafana.rede.local",
+          "answer": "192.168.31.13"
+        },
+        "jellyfin": {
+          "domain": "jellyfin3.rede.local",
+          "answer": "192.168.31.13"
+        },
+        "node-exporter": {
+          "domain": "node_exporter.rede.local",
+          "answer": "192.168.31.13"
+        },
+        "prometheus": {
+          "domain": "prometheus.rede.local",
+          "answer": "192.168.31.13"
+        },
+        "prowlarr": {
+          "domain": "prowlarr.rede.local",
+          "answer": "192.168.31.13"
+        },
+        "qbittorrent": {
+          "domain": "qbittorrent.rede.local",
+          "answer": "192.168.31.13"
+        },
+        "qbittorrent-exporter": {
+          "domain": "qbittorrent-exporter.rede.local",
+          "answer": "192.168.31.13"
+        },
+        "radarr": {
+          "domain": "radarr.rede.local",
+          "answer": "192.168.31.13"
+        },
+        "readarr": {
+          "domain": "readarr.rede.local",
+          "answer": "192.168.31.13"
+        },
+        "sonarr": {
+          "domain": "sonarr.rede.local",
+          "answer": "192.168.31.13"
+        },
+        "transmission": {
+          "domain": "transmission.rede.local",
+          "answer": "192.168.31.13"
+        }
+      }
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import type { DnsConfig, ServerEntry, ServiceEntry } from "../../config/types.ts";
+import type { ManagedDnsServerState } from "../../lockfile/types.ts";
 import type { AdGuardHomeDnsService } from "./adguard-home-dns-service.ts";
 
 export interface AdGuardRewriteEntry {
@@ -7,7 +8,7 @@ export interface AdGuardRewriteEntry {
   enabled?: boolean;
 }
 
-export type DnsRewriteAction = "create" | "update" | "unchanged";
+export type DnsRewriteAction = "create" | "delete" | "update" | "unchanged";
 
 export interface DnsRewritePlan {
   domain: string;
@@ -17,8 +18,14 @@ export interface DnsRewritePlan {
 }
 
 export interface DnsRewriteSyncResult extends DnsRewritePlan {
-  service: ServiceEntry;
+  service?: ServiceEntry;
+  serviceId: string;
   server: ServerEntry;
+}
+
+export interface DnsSyncResult {
+  lockState: ManagedDnsServerState;
+  results: DnsRewriteSyncResult[];
 }
 
 export type DnsSyncProgressHandler = (result: DnsRewriteSyncResult) => void;

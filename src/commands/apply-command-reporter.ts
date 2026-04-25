@@ -21,6 +21,7 @@ import type {
   ApplyDnsSyncSuccessEvent,
   ApplyTarget,
   ApplyTargetErrorEvent,
+  ApplyTargetSkippedEvent,
   ApplyTargetsResolvedEvent,
 } from "./apply-command-types.ts";
 import {
@@ -50,6 +51,9 @@ export class ApplyCliReporter {
       eventBus.on(APPLY_COMMAND_EVENTS.caddyDryRun, (event) => {
         this.onCaddyDryRun(event.data);
       }),
+      eventBus.on(APPLY_COMMAND_EVENTS.caddySyncSkipped, (event) => {
+        this.onCaddySyncSkipped(event.data);
+      }),
       eventBus.on(APPLY_COMMAND_EVENTS.caddySyncSuccess, (event) => {
         this.onCaddySyncSuccess(event.data);
       }),
@@ -62,6 +66,9 @@ export class ApplyCliReporter {
       eventBus.on(APPLY_COMMAND_EVENTS.cloudflareDryRun, (event) => {
         this.onCloudflareDryRun(event.data);
       }),
+      eventBus.on(APPLY_COMMAND_EVENTS.cloudflareSyncSkipped, (event) => {
+        this.onCloudflareSyncSkipped(event.data);
+      }),
       eventBus.on(APPLY_COMMAND_EVENTS.cloudflareSyncSuccess, (event) => {
         this.onCloudflareSyncSuccess(event.data);
       }),
@@ -73,6 +80,9 @@ export class ApplyCliReporter {
       }),
       eventBus.on(APPLY_COMMAND_EVENTS.dnsDryRun, (event) => {
         this.onDnsDryRun(event.data);
+      }),
+      eventBus.on(APPLY_COMMAND_EVENTS.dnsSyncSkipped, (event) => {
+        this.onDnsSyncSkipped(event.data);
       }),
       eventBus.on(APPLY_COMMAND_EVENTS.dnsSyncSuccess, (event) => {
         this.onDnsSyncSuccess(event.data);
@@ -148,6 +158,11 @@ export class ApplyCliReporter {
     );
   }
 
+  private onCaddySyncSkipped(event: ApplyTargetSkippedEvent): void {
+    this.caddySpinner?.stop();
+    console.log(this.buildSkippedResultLine("caddy", event.target.server, event.reason));
+  }
+
   private onCaddySyncFailed(event: ApplyTargetErrorEvent): void {
     this.caddySpinner?.fail(`Caddy update failed for ${event.target.server.id}.`);
   }
@@ -177,6 +192,11 @@ export class ApplyCliReporter {
     }
   }
 
+  private onCloudflareSyncSkipped(event: ApplyTargetSkippedEvent): void {
+    this.cloudflareSpinner?.stop();
+    console.log(this.buildSkippedResultLine("cloudflare", event.target.server, event.reason));
+  }
+
   private onCloudflareSyncFailed(event: ApplyTargetErrorEvent): void {
     this.cloudflareSpinner?.fail(`Cloudflare Tunnel sync failed for ${event.target.server.id}.`);
   }
@@ -197,6 +217,11 @@ export class ApplyCliReporter {
     for (const result of event.results) {
       console.log(chalk.dim(this.formatDnsResult(result)));
     }
+  }
+
+  private onDnsSyncSkipped(event: ApplyTargetSkippedEvent): void {
+    this.dnsSpinner?.stop();
+    console.log(this.buildSkippedResultLine("dns", event.target.server, event.reason));
   }
 
   private onDnsSyncFailed(event: ApplyTargetErrorEvent): void {
@@ -300,12 +325,18 @@ export class ApplyCliReporter {
     const actionColor =
       result.action === "create"
         ? chalk.green
+        : result.action === "delete"
+          ? chalk.red
         : result.action === "update"
           ? chalk.yellow
           : chalk.gray;
     const actionLabel = actionColor(result.action.toUpperCase());
     const currentAnswer =
       result.currentAnswers.length > 0 ? result.currentAnswers.join(", ") : "missing";
+
+    if (result.action === "delete") {
+      return `${result.domain} | ${actionLabel} | removing ${currentAnswer}`;
+    }
 
     return `${result.domain} | ${actionLabel} | ${currentAnswer} -> ${result.desiredAnswer}`;
   }
@@ -314,11 +345,17 @@ export class ApplyCliReporter {
     const actionColor =
       result.action === "create"
         ? chalk.green
+        : result.action === "delete"
+          ? chalk.red
         : result.action === "update"
           ? chalk.yellow
           : chalk.gray;
     const actionLabel = actionColor(result.action.toUpperCase());
     const currentService = result.currentService ?? "missing";
+
+    if (result.action === "delete") {
+      return `${result.hostname} | ${actionLabel} | removing ${currentService}`;
+    }
 
     return `${result.hostname} | ${actionLabel} | ${currentService} -> ${result.desiredService}`;
   }
@@ -327,11 +364,17 @@ export class ApplyCliReporter {
     const actionColor =
       result.action === "create"
         ? chalk.green
+        : result.action === "delete"
+          ? chalk.red
         : result.action === "update"
           ? chalk.yellow
           : chalk.gray;
     const actionLabel = actionColor(result.action.toUpperCase());
     const currentTunnel = result.currentTunnelId ?? "missing";
+
+    if (result.action === "delete") {
+      return `DNS ${result.hostname} | ${actionLabel} | removing ${currentTunnel}`;
+    }
 
     return `DNS ${result.hostname} | ${actionLabel} | ${currentTunnel} -> ${result.desiredTunnelId}`;
   }
@@ -339,6 +382,7 @@ export class ApplyCliReporter {
   private summarizeDnsResults(results: DnsRewriteSyncResult[]): string {
     const counts = {
       create: 0,
+      delete: 0,
       update: 0,
       unchanged: 0,
     };
@@ -349,16 +393,18 @@ export class ApplyCliReporter {
 
     return [
       chalk.green(`${counts.create} create`),
+      chalk.red(`${counts.delete} delete`),
       chalk.yellow(`${counts.update} update`),
       chalk.gray(`${counts.unchanged} unchanged`),
     ].join(", ");
   }
 
   private summarizeCloudflareActions(
-    results: Array<{ action: "create" | "update" | "unchanged" }>,
+    results: Array<{ action: "create" | "delete" | "update" | "unchanged" }>,
   ): string {
     const counts = {
       create: 0,
+      delete: 0,
       update: 0,
       unchanged: 0,
     };
@@ -369,6 +415,7 @@ export class ApplyCliReporter {
 
     return [
       chalk.green(`${counts.create} create`),
+      chalk.red(`${counts.delete} delete`),
       chalk.yellow(`${counts.update} update`),
       chalk.gray(`${counts.unchanged} unchanged`),
     ].join(", ");
@@ -442,5 +489,13 @@ export class ApplyCliReporter {
   ): string {
     const dnsLabel = publicDnsEnabled ? "public DNS planned" : "public DNS disabled";
     return `${this.formatPhaseLabel("cloudflare")} | ${this.formatServerLabel(server)} | ${chalk.green(`${services.length} routes prepared`)} (${dnsLabel}, dry run)`;
+  }
+
+  private buildSkippedResultLine(
+    phase: "caddy" | "cloudflare" | "dns",
+    server: ServerEntry,
+    reason: string,
+  ): string {
+    return `${this.formatPhaseLabel(phase)} | ${this.formatServerLabel(server)} | ${chalk.gray(`skipped (${reason})`)}`;
   }
 }

@@ -6,6 +6,11 @@ import type {
   ServiceEntry,
 } from "../../config/types.ts";
 import type {
+  ManagedCloudflareIngressState,
+  ManagedCloudflarePublicDnsState,
+  ManagedCloudflareTunnelServerState,
+} from "../../lockfile/types.ts";
+import type {
   CloudflarePublicDnsSyncResult,
   CloudflareTunnelIngressRule,
   CloudflareTunnelIngressSyncResult,
@@ -27,11 +32,28 @@ interface CloudflareTunnelConfigurationResponse {
   };
 }
 
-interface CloudflareHostnameRoute {
+interface CloudflareDnsRecord {
   id?: string;
-  hostname?: string;
-  tunnel_id?: string;
-  deleted_at?: string | null;
+  name?: string;
+  type?: string;
+  content?: string;
+  proxied?: boolean;
+  comment?: string | null;
+}
+
+interface CloudflareZone {
+  id?: string;
+  name?: string;
+}
+
+interface SyncIngressRulesResult {
+  lockState: ManagedCloudflareTunnelServerState["ingress"];
+  results: CloudflareTunnelIngressSyncResult[];
+}
+
+interface SyncPublicDnsRoutesResult {
+  lockState: ManagedCloudflareTunnelServerState["publicDns"];
+  results: CloudflarePublicDnsSyncResult[];
 }
 
 function normalizePath(path: string | undefined): string | undefined {
@@ -76,6 +98,7 @@ export class CloudflareTunnelService {
   private readonly client: typeof ky;
   private readonly accountId: string;
   private readonly tunnelId: string;
+  private readonly zoneIdsByName: Map<string, string>;
 
   public constructor(config: CloudflareTunnelsConfig, server: ServerEntry, servers: ServerEntry[]) {
     if (!hasCloudflareTunnel(server)) {
@@ -113,8 +136,9 @@ export class CloudflareTunnelService {
     );
     this.accountId = config.account_id;
     this.tunnelId = server["cloudflare-tunnel"].tunnel_id;
+    this.zoneIdsByName = new Map<string, string>();
     this.client = ky.create({
-      prefix: `https://api.cloudflare.com/client/v4/accounts/${this.accountId}/`,
+      prefix: "https://api.cloudflare.com/client/v4/",
       retry: 0,
       timeout: 20_000,
       headers: {
@@ -125,46 +149,163 @@ export class CloudflareTunnelService {
     });
   }
 
-  public async syncPublishedApplications(services: ServiceEntry[]): Promise<CloudflareTunnelSyncResult> {
-    const ingressResults = await this.syncIngressRules(services);
-    const publicDnsResults = this.config.options.sync_public_dns
-      ? await this.syncPublicDnsRoutes(services)
-      : [];
+  public buildManagedState(
+    services: ServiceEntry[],
+    previousState?: ManagedCloudflareTunnelServerState,
+  ): ManagedCloudflareTunnelServerState {
+    const ingress = Object.fromEntries(
+      this.sortServices(services).map((service: ServiceEntry) => [
+        service.id,
+        this.buildManagedIngressState(service),
+      ]),
+    );
+
+    const publicDns = this.config.options.sync_public_dns
+      ? Object.fromEntries(
+          this.sortServices(services).map((service: ServiceEntry) => {
+            const previousRecord = previousState?.publicDns[service.id];
+            const hostname = this.getCloudflareHostname(service);
+
+            return [
+              service.id,
+              {
+                hostname,
+                tunnelId: this.tunnelId,
+                zoneId: previousRecord?.hostname === hostname ? previousRecord.zoneId : undefined,
+                recordId: previousRecord?.hostname === hostname ? previousRecord.recordId : undefined,
+              },
+            ];
+          }),
+        )
+      : { ...(previousState?.publicDns ?? {}) };
 
     return {
-      ingress: ingressResults,
-      publicDns: publicDnsResults,
+      tunnelId: this.tunnelId,
+      ingress,
+      publicDns,
+    };
+  }
+
+  public async syncPublishedApplications(
+    services: ServiceEntry[],
+    previousState?: ManagedCloudflareTunnelServerState,
+  ): Promise<CloudflareTunnelSyncResult> {
+    const ingressResult = await this.syncIngressRules(services, previousState?.ingress ?? {});
+    const publicDnsResult = this.config.options.sync_public_dns
+      ? await this.syncPublicDnsRecords(services, previousState?.publicDns ?? {})
+      : {
+          lockState: { ...(previousState?.publicDns ?? {}) },
+          results: [],
+        };
+
+    return {
+      ingress: ingressResult.results,
+      publicDns: publicDnsResult.results,
       publicDnsEnabled: this.config.options.sync_public_dns,
+      lockState: {
+        tunnelId: this.tunnelId,
+        ingress: ingressResult.lockState,
+        publicDns: publicDnsResult.lockState,
+      },
     };
   }
 
   private async syncIngressRules(
     services: ServiceEntry[],
-  ): Promise<CloudflareTunnelIngressSyncResult[]> {
+    previousManagedIngress: ManagedCloudflareTunnelServerState["ingress"],
+  ): Promise<SyncIngressRulesResult> {
     const existingIngress = await this.listIngressRules();
-    const plans = services
-      .slice()
-      .sort((left: ServiceEntry, right: ServiceEntry) =>
-        this.getCloudflareHostname(left).localeCompare(this.getCloudflareHostname(right)),
-      )
-      .map((service: ServiceEntry): CloudflareTunnelIngressSyncResult => {
-        const hostname = this.getCloudflareHostname(service);
-        const currentRule = existingIngress.find(
-          (rule: CloudflareTunnelIngressRule) => rule.hostname === hostname,
-        );
-        const desiredRule = this.buildIngressRule(service, currentRule);
+    const desiredEntries = this.sortServices(services).map((service: ServiceEntry) => {
+      const desiredState = this.buildManagedIngressState(service);
+      const currentRule = existingIngress.find(
+        (rule: CloudflareTunnelIngressRule) => rule.hostname === desiredState.hostname,
+      );
 
-        return {
-          action: this.determineIngressAction(currentRule, desiredRule),
-          hostname,
-          desiredService: desiredRule.service,
-          currentService: currentRule?.service,
-          service,
-          server: this.server,
-        };
+      return {
+        service,
+        currentRule,
+        desiredState,
+        desiredRule: this.buildIngressRule(desiredState, currentRule),
+      };
+    });
+
+    const results: CloudflareTunnelIngressSyncResult[] = desiredEntries.map((entry) => ({
+      action: this.determineIngressAction(entry.currentRule, entry.desiredRule),
+      hostname: entry.desiredState.hostname,
+      desiredService: entry.desiredState.service,
+      currentService: entry.currentRule?.service,
+      service: entry.service,
+      serviceId: entry.service.id,
+      server: this.server,
+    }));
+
+    const currentHostnamesByServiceId = new Map<string, string>(
+      desiredEntries.map((entry): [string, string] => [entry.service.id, entry.desiredState.hostname]),
+    );
+    const desiredHostnames = new Set<string>(desiredEntries.map((entry) => entry.desiredState.hostname));
+    const desiredServiceUrlsByServiceId = new Map<string, string>(
+      desiredEntries.map((entry): [string, string] => [entry.service.id, entry.desiredState.service]),
+    );
+    const removedManagedEntries = Object.entries(previousManagedIngress)
+      .filter(([serviceId, ingressState]) => currentHostnamesByServiceId.get(serviceId) !== ingressState.hostname)
+      .sort(([left], [right]) => left.localeCompare(right));
+
+    for (const [serviceId, ingressState] of removedManagedEntries) {
+      const currentRule = existingIngress.find(
+        (rule: CloudflareTunnelIngressRule) => rule.hostname === ingressState.hostname,
+      );
+
+      results.push({
+        action: "delete",
+        hostname: ingressState.hostname,
+        desiredService: "",
+        currentService: currentRule?.service ?? ingressState.service,
+        serviceId,
+        server: this.server,
       });
+    }
 
-    const nextIngress = this.buildNextIngress(existingIngress, services);
+    const duplicateRemoteEntries = desiredEntries.flatMap((entry) =>
+      existingIngress
+        .filter(
+          (rule: CloudflareTunnelIngressRule) =>
+            rule.hostname &&
+            rule.hostname !== entry.desiredState.hostname &&
+            !desiredHostnames.has(rule.hostname) &&
+            rule.service === entry.desiredState.service,
+        )
+        .map((rule: CloudflareTunnelIngressRule): CloudflareTunnelIngressSyncResult => ({
+          action: "delete",
+          hostname: rule.hostname as string,
+          desiredService: "",
+          currentService: rule.service,
+          service: entry.service,
+          serviceId: entry.service.id,
+          server: this.server,
+        })),
+    );
+
+    for (const duplicateEntry of duplicateRemoteEntries) {
+      if (
+        !results.some(
+          (result: CloudflareTunnelIngressSyncResult) =>
+            result.action === "delete" && result.hostname === duplicateEntry.hostname,
+        )
+      ) {
+        results.push(duplicateEntry);
+      }
+    }
+
+    const nextIngress = this.buildNextIngress(
+      existingIngress,
+      desiredEntries.map((entry) => entry.desiredRule),
+      new Set<string>(
+        Object.values(previousManagedIngress).map(
+          (ingressState: ManagedCloudflareIngressState) => ingressState.hostname,
+        ),
+      ),
+      new Set<string>([...desiredServiceUrlsByServiceId.values()]),
+    );
     const currentSerialized = existingIngress.map(serializeIngressRule);
     const nextSerialized = nextIngress.map(serializeIngressRule);
 
@@ -172,46 +313,92 @@ export class CloudflareTunnelService {
       await this.updateIngressRules(nextIngress);
     }
 
-    return plans;
+    return {
+      lockState: Object.fromEntries(
+        desiredEntries.map((entry) => [entry.service.id, entry.desiredState]),
+      ),
+      results,
+    };
   }
 
-  private async syncPublicDnsRoutes(
+  private async syncPublicDnsRecords(
     services: ServiceEntry[],
-  ): Promise<CloudflarePublicDnsSyncResult[]> {
+    previousManagedPublicDns: ManagedCloudflareTunnelServerState["publicDns"],
+  ): Promise<SyncPublicDnsRoutesResult> {
     const results: CloudflarePublicDnsSyncResult[] = [];
+    const lockStateEntries: Array<[string, ManagedCloudflarePublicDnsState]> = [];
+    const desiredHostnamesByServiceId = new Map<string, string>();
 
-    for (const service of services
-      .slice()
-      .sort((left: ServiceEntry, right: ServiceEntry) =>
-        this.getCloudflareHostname(left).localeCompare(this.getCloudflareHostname(right)),
-      )) {
+    for (const service of this.sortServices(services)) {
       const hostname = this.getCloudflareHostname(service);
-      const routes = await this.listHostnameRoutes(hostname);
-      const currentRoute = routes.find((route: CloudflareHostnameRoute) => route.hostname === hostname);
-      const action = this.determineHostnameRouteAction(currentRoute);
+      const zone = await this.resolveZone(hostname);
+      const currentRecords = await this.listDnsRecords(zone.id, hostname);
+      const currentRecord = currentRecords[0];
+      const action = this.determineDnsRecordAction(currentRecord);
+      let nextRecord = currentRecord;
 
       if (action === "create") {
-        await this.createHostnameRoute(hostname, service.id);
-      } else if (action === "update" && currentRoute?.id) {
-        await this.updateHostnameRoute(currentRoute.id, hostname, service.id);
+        nextRecord = await this.createDnsRecord(zone.id, hostname, service.id);
+      } else if (action === "update" && currentRecord?.id) {
+        nextRecord = await this.updateDnsRecord(zone.id, currentRecord.id, hostname, service.id);
       }
 
+      if (currentRecords.length > 1) {
+        for (const duplicateRecord of currentRecords.slice(1)) {
+          if (duplicateRecord.id) {
+            await this.deleteDnsRecord(zone.id, duplicateRecord.id);
+          }
+        }
+      }
+
+      desiredHostnamesByServiceId.set(service.id, hostname);
       results.push({
         action,
         hostname,
         desiredTunnelId: this.tunnelId,
-        currentTunnelId: currentRoute?.tunnel_id,
+        currentTunnelId: this.extractTunnelIdFromRecord(currentRecord),
+        recordId: nextRecord?.id,
         service,
+        serviceId: service.id,
+        server: this.server,
+      });
+      lockStateEntries.push([
+        service.id,
+        {
+          hostname,
+          tunnelId: this.tunnelId,
+          zoneId: zone.id,
+          recordId: nextRecord?.id,
+        },
+      ]);
+    }
+
+    const removedManagedEntries = Object.entries(previousManagedPublicDns)
+      .filter(([serviceId, recordState]) => desiredHostnamesByServiceId.get(serviceId) !== recordState.hostname)
+      .sort(([left], [right]) => left.localeCompare(right));
+
+    for (const [serviceId, recordState] of removedManagedEntries) {
+      const deletedRecordIds = await this.deleteManagedDnsRecords(recordState);
+      results.push({
+        action: "delete",
+        hostname: recordState.hostname,
+        desiredTunnelId: this.tunnelId,
+        currentTunnelId: recordState.tunnelId,
+        recordId: deletedRecordIds[0],
+        serviceId,
         server: this.server,
       });
     }
 
-    return results;
+    return {
+      lockState: Object.fromEntries(lockStateEntries),
+      results,
+    };
   }
 
   private async listIngressRules(): Promise<CloudflareTunnelIngressRule[]> {
     const response = await this.request<CloudflareTunnelConfigurationResponse>(
-      `cfd_tunnel/${this.tunnelId}/configurations`,
+      `accounts/${this.accountId}/cfd_tunnel/${this.tunnelId}/configurations`,
     );
 
     return response.config?.ingress ?? [];
@@ -219,7 +406,7 @@ export class CloudflareTunnelService {
 
   private async updateIngressRules(ingress: CloudflareTunnelIngressRule[]): Promise<void> {
     await this.request<CloudflareTunnelConfigurationResponse>(
-      `cfd_tunnel/${this.tunnelId}/configurations`,
+      `accounts/${this.accountId}/cfd_tunnel/${this.tunnelId}/configurations`,
       {
         method: "PUT",
         json: {
@@ -231,60 +418,137 @@ export class CloudflareTunnelService {
     );
   }
 
-  private async listHostnameRoutes(hostname: string): Promise<CloudflareHostnameRoute[]> {
-    const response = await this.request<CloudflareHostnameRoute[]>(
-      "zerotrust/routes/hostname",
+  private async resolveZone(hostname: string): Promise<{ id: string; name: string }> {
+    const labels = hostname.split(".");
+
+    for (let index = 0; index < labels.length - 1; index += 1) {
+      const candidateZoneName = labels.slice(index).join(".");
+      const cachedZoneId = this.zoneIdsByName.get(candidateZoneName);
+      if (cachedZoneId) {
+        return {
+          id: cachedZoneId,
+          name: candidateZoneName,
+        };
+      }
+
+      const zones = await this.request<CloudflareZone[]>("zones", {
+        searchParams: {
+          "account.id": this.accountId,
+          match: "all",
+          name: candidateZoneName,
+          per_page: "1",
+        },
+      });
+      const zone = zones.find((entry: CloudflareZone) => entry.name === candidateZoneName && entry.id);
+      if (zone?.id) {
+        this.zoneIdsByName.set(candidateZoneName, zone.id);
+        return {
+          id: zone.id,
+          name: candidateZoneName,
+        };
+      }
+    }
+
+    throw new Error(`Unable to resolve a Cloudflare zone for hostname '${hostname}'.`);
+  }
+
+  private async listDnsRecords(zoneId: string, hostname: string): Promise<CloudflareDnsRecord[]> {
+    const response = await this.request<CloudflareDnsRecord[]>(
+      `zones/${zoneId}/dns_records`,
       {
         searchParams: {
-          hostname,
+          name: hostname,
+          per_page: "100",
+          type: "CNAME",
         },
       },
     );
 
     return response.filter(
-      (route: CloudflareHostnameRoute) =>
-        route.hostname === hostname && !route.deleted_at,
+      (record: CloudflareDnsRecord) => record.type === "CNAME" && record.name === hostname,
     );
   }
 
-  private async createHostnameRoute(hostname: string, serviceId: string): Promise<void> {
-    await this.request<CloudflareHostnameRoute>("zerotrust/routes/hostname", {
+  private async createDnsRecord(
+    zoneId: string,
+    hostname: string,
+    serviceId: string,
+  ): Promise<CloudflareDnsRecord> {
+    return await this.request<CloudflareDnsRecord>(`zones/${zoneId}/dns_records`, {
       method: "POST",
       json: {
-        hostname,
-        tunnel_id: this.tunnelId,
-        comment: this.buildHostnameRouteComment(serviceId),
+        comment: this.buildDnsRecordComment(serviceId),
+        content: this.buildTunnelDnsTarget(),
+        name: hostname,
+        proxied: true,
+        ttl: 1,
+        type: "CNAME",
       },
     });
   }
 
-  private async updateHostnameRoute(
-    routeId: string,
+  private async updateDnsRecord(
+    zoneId: string,
+    recordId: string,
     hostname: string,
     serviceId: string,
-  ): Promise<void> {
-    await this.request<CloudflareHostnameRoute>(`zerotrust/routes/hostname/${routeId}`, {
-      method: "PATCH",
+  ): Promise<CloudflareDnsRecord> {
+    return await this.request<CloudflareDnsRecord>(`zones/${zoneId}/dns_records/${recordId}`, {
+      method: "PUT",
       json: {
-        hostname,
-        tunnel_id: this.tunnelId,
-        comment: this.buildHostnameRouteComment(serviceId),
+        comment: this.buildDnsRecordComment(serviceId),
+        content: this.buildTunnelDnsTarget(),
+        name: hostname,
+        proxied: true,
+        ttl: 1,
+        type: "CNAME",
       },
     });
+  }
+
+  private async deleteDnsRecord(zoneId: string, recordId: string): Promise<void> {
+    await this.request<CloudflareDnsRecord>(`zones/${zoneId}/dns_records/${recordId}`, {
+      method: "DELETE",
+    });
+  }
+
+  private async deleteManagedDnsRecords(
+    recordState: ManagedCloudflarePublicDnsState,
+  ): Promise<string[]> {
+    const zoneId = recordState.zoneId ?? (await this.resolveZone(recordState.hostname)).id;
+
+    if (recordState.recordId) {
+      await this.deleteDnsRecord(zoneId, recordState.recordId);
+      return [recordState.recordId];
+    }
+
+    const records = await this.listDnsRecords(zoneId, recordState.hostname);
+    const matchingRecords = records.filter(
+      (record: CloudflareDnsRecord) =>
+        record.id &&
+        record.name === recordState.hostname &&
+        record.content === `${recordState.tunnelId}.cfargotunnel.com`,
+    );
+
+    for (const record of matchingRecords) {
+      await this.deleteDnsRecord(zoneId, record.id as string);
+    }
+
+    return matchingRecords.map((record: CloudflareDnsRecord) => record.id as string);
   }
 
   private buildNextIngress(
     existingIngress: CloudflareTunnelIngressRule[],
-    services: ServiceEntry[],
+    desiredIngress: CloudflareTunnelIngressRule[],
+    managedHostnames: Set<string>,
+    desiredManagedServices: Set<string>,
   ): CloudflareTunnelIngressRule[] {
     const desiredByHostname = new Map<string, CloudflareTunnelIngressRule>();
 
-    for (const service of services) {
-      const hostname = this.getCloudflareHostname(service);
-      const existingRule = existingIngress.find(
-        (rule: CloudflareTunnelIngressRule) => rule.hostname === hostname,
-      );
-      desiredByHostname.set(hostname, this.buildIngressRule(service, existingRule));
+    for (const rule of desiredIngress) {
+      if (rule.hostname) {
+        desiredByHostname.set(rule.hostname, rule);
+      }
     }
 
     const nextIngress: CloudflareTunnelIngressRule[] = [];
@@ -306,6 +570,14 @@ export class CloudflareTunnelService {
         continue;
       }
 
+      if (managedHostnames.has(rule.hostname)) {
+        continue;
+      }
+
+      if (desiredManagedServices.has(rule.service)) {
+        continue;
+      }
+
       nextIngress.push(normalizeIngressRule(rule));
     }
 
@@ -320,14 +592,22 @@ export class CloudflareTunnelService {
     return nextIngress;
   }
 
-  private buildIngressRule(
-    service: ServiceEntry,
-    existingRule?: CloudflareTunnelIngressRule,
-  ): CloudflareTunnelIngressRule {
+  private buildManagedIngressState(service: ServiceEntry): ManagedCloudflareIngressState {
     return {
       hostname: this.getCloudflareHostname(service),
       path: normalizePath(service.publish["cloudflare-tunnel"]?.path),
       service: this.buildOriginServiceUrl(service),
+    };
+  }
+
+  private buildIngressRule(
+    state: ManagedCloudflareIngressState,
+    existingRule?: CloudflareTunnelIngressRule,
+  ): CloudflareTunnelIngressRule {
+    return {
+      hostname: state.hostname,
+      path: state.path,
+      service: state.service,
       originRequest: existingRule?.originRequest,
     };
   }
@@ -378,18 +658,41 @@ export class CloudflareTunnelService {
     return currentComparable === desiredComparable ? "unchanged" : "update";
   }
 
-  private determineHostnameRouteAction(
-    currentRoute: CloudflareHostnameRoute | undefined,
+  private determineDnsRecordAction(
+    currentRecord: CloudflareDnsRecord | undefined,
   ): CloudflareTunnelSyncAction {
-    if (!currentRoute) {
+    if (!currentRecord) {
       return "create";
     }
 
-    return currentRoute.tunnel_id === this.tunnelId ? "unchanged" : "update";
+    const desiredTarget = this.buildTunnelDnsTarget();
+    const currentTunnelId = this.extractTunnelIdFromRecord(currentRecord);
+    return currentRecord.content === desiredTarget && currentRecord.proxied === true && currentTunnelId === this.tunnelId
+      ? "unchanged"
+      : "update";
   }
 
-  private buildHostnameRouteComment(serviceId: string): string {
+  private buildTunnelDnsTarget(): string {
+    return `${this.tunnelId}.cfargotunnel.com`;
+  }
+
+  private extractTunnelIdFromRecord(record: CloudflareDnsRecord | undefined): string | undefined {
+    const content = record?.content;
+    if (!content || !content.endsWith(".cfargotunnel.com")) {
+      return undefined;
+    }
+
+    return content.slice(0, -".cfargotunnel.com".length);
+  }
+
+  private buildDnsRecordComment(serviceId: string): string {
     return `Managed by home-lab-machine-syncer (${serviceId})`;
+  }
+
+  private sortServices(services: ServiceEntry[]): ServiceEntry[] {
+    return services
+      .slice()
+      .sort((left: ServiceEntry, right: ServiceEntry) => left.id.localeCompare(right.id));
   }
 
   private arraysEqual(left: string[], right: string[]): boolean {
@@ -418,6 +721,24 @@ export class CloudflareTunnelService {
 
   private formatError(error: unknown): string {
     if (error instanceof HTTPError) {
+      const requestUrl = error.request.url;
+      if (error.response.status === 403 && requestUrl.includes("/dns_records")) {
+        return [
+          "Cloudflare DNS API request was forbidden.",
+          "cloudflare-tunnels.options.sync_public_dns requires a token with Cloudflare DNS permissions",
+          "(at minimum DNS Read/DNS Write for the target zone).",
+          `Request: ${error.request.method} ${requestUrl}`,
+        ].join(" ");
+      }
+
+      if (error.response.status === 403 && requestUrl.includes("/zones")) {
+        return [
+          "Cloudflare zone lookup was forbidden.",
+          "Resolving public DNS zones requires a token with Zone Read permission.",
+          `Request: ${error.request.method} ${requestUrl}`,
+        ].join(" ");
+      }
+
       return `Cloudflare API request failed: ${error.message}`;
     }
 

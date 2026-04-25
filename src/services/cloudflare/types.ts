@@ -3,9 +3,10 @@ import type {
   ServerEntry,
   ServiceEntry,
 } from "../../config/types.ts";
+import type { ManagedCloudflareTunnelServerState } from "../../lockfile/types.ts";
 import type { CloudflareTunnelService } from "./cloudflare-tunnel-service.ts";
 
-export type CloudflareTunnelSyncAction = "create" | "update" | "unchanged";
+export type CloudflareTunnelSyncAction = "create" | "delete" | "update" | "unchanged";
 
 export interface CloudflareTunnelIngressRule {
   hostname?: string;
@@ -19,7 +20,8 @@ export interface CloudflareTunnelIngressSyncResult {
   hostname: string;
   desiredService: string;
   currentService?: string;
-  service: ServiceEntry;
+  service?: ServiceEntry;
+  serviceId: string;
   server: ServerEntry;
 }
 
@@ -28,7 +30,9 @@ export interface CloudflarePublicDnsSyncResult {
   hostname: string;
   desiredTunnelId: string;
   currentTunnelId?: string;
-  service: ServiceEntry;
+  recordId?: string;
+  service?: ServiceEntry;
+  serviceId: string;
   server: ServerEntry;
 }
 
@@ -36,6 +40,7 @@ export interface CloudflareTunnelSyncResult {
   ingress: CloudflareTunnelIngressSyncResult[];
   publicDns: CloudflarePublicDnsSyncResult[];
   publicDnsEnabled: boolean;
+  lockState: ManagedCloudflareTunnelServerState;
 }
 
 export type CloudflareTunnelServiceFactory = (

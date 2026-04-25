@@ -6,4 +6,6 @@ export const TYPES = {
   CloudflareTunnelServiceFactory: Symbol.for("CloudflareTunnelServiceFactory"),
   DnsServiceFactory: Symbol.for("DnsServiceFactory"),
   DefaultConfigDirectory: Symbol.for("DefaultConfigDirectory"),
+  DefaultLockfilePath: Symbol.for("DefaultLockfilePath"),
+  LockfileStore: Symbol.for("LockfileStore"),
 } as const;

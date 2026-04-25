@@ -1,8 +1,10 @@
 import http from "node:http";
 import https from "node:https";
+import { createHash } from "node:crypto";
 
 import ky from "ky";
 
+import type { ManagedCaddyServerState } from "../../lockfile/types.ts";
 import type { ServerEntry, ServiceEntry } from "../../config/types.ts";
 import type { CaddyApplyResult, CaddyConfigPayload, CaddyRoute } from "./types.ts";
 
@@ -56,6 +58,42 @@ export class CaddyService {
           },
         },
       },
+    };
+  }
+
+  public buildManagedState(services: ServiceEntry[]): ManagedCaddyServerState {
+    const payload = this.buildConfigPayload(services);
+    const managedServices = Object.fromEntries(
+      services
+        .slice()
+        .sort((left: ServiceEntry, right: ServiceEntry) => left.id.localeCompare(right.id))
+        .map((service: ServiceEntry) => {
+          const caddyPublication = service.publish.caddy;
+          if (!caddyPublication) {
+            throw new Error(`Service '${service.id}' does not define publish.caddy.`);
+          }
+
+          const originServer = this.serversById.get(service.origin.server);
+          if (!originServer) {
+            throw new Error(
+              `Service '${service.id}' references unknown origin server '${service.origin.server}'.`,
+            );
+          }
+
+          return [
+            service.id,
+            {
+              hostnames: [caddyPublication.hostname, ...(caddyPublication.aliases ?? [])],
+              upstream: `${originServer.ip}:${service.origin.port}`,
+            },
+          ];
+        }),
+    );
+
+    return {
+      adminUrl: this.getLoadUrl(),
+      payloadHash: this.hashPayload(payload),
+      services: managedServices,
     };
   }
 
@@ -169,5 +207,9 @@ export class CaddyService {
       request.write(body);
       request.end();
     });
+  }
+
+  private hashPayload(payload: CaddyConfigPayload): string {
+    return `sha256:${createHash("sha256").update(JSON.stringify(payload)).digest("hex")}`;
   }
 }

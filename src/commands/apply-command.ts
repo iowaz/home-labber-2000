@@ -11,10 +11,16 @@ import type { CliCommand } from "./types.ts";
 export class ApplyCommand implements CliCommand {
   private readonly runner: ApplyCommandRunner;
   private readonly defaultConfigDirectory: string;
+  private readonly defaultLockfilePath: string;
 
-  public constructor(runner: ApplyCommandRunner, defaultConfigDirectory: string) {
+  public constructor(
+    runner: ApplyCommandRunner,
+    defaultConfigDirectory: string,
+    defaultLockfilePath: string,
+  ) {
     this.runner = runner;
     this.defaultConfigDirectory = defaultConfigDirectory;
+    this.defaultLockfilePath = defaultLockfilePath;
   }
 
   public register(program: Command): void {
@@ -25,7 +31,12 @@ export class ApplyCommand implements CliCommand {
         "Read config/*.yaml, validate it, and sync Caddy, Cloudflare Tunnel, and DNS publications.",
       )
       .option("-c, --config <path>", "Path to the config directory", this.defaultConfigDirectory)
+      .option("-l, --lockfile <path>", "Path to the managed state lockfile", this.defaultLockfilePath)
       .option("--dry-run", "Validate and prepare publication changes without sending remote writes")
+      .option(
+        "--recreate-lockfile",
+        "Force reconciliation and rewrite the managed state lockfile for the selected scope",
+      )
       .option("--slow-running", "Add a 700ms delay to each apply operation for UX validation")
       .option("--server <id>", "Only apply Caddy-published services for one server id")
       .action(this.createActionHandler());
@@ -42,6 +53,8 @@ export class ApplyCommand implements CliCommand {
           {
             config: options.config,
             dryRun: Boolean(options.dryRun),
+            lockfile: options.lockfile,
+            recreateLockfile: Boolean(options.recreateLockfile),
             server: options.server,
             slowRunning: Boolean(options.slowRunning),
           },
@@ -61,3 +74,4 @@ export class ApplyCommand implements CliCommand {
 decorate(injectable(), ApplyCommand);
 decorate(inject(TYPES.ApplyCommandRunner), ApplyCommand, 0);
 decorate(inject(TYPES.DefaultConfigDirectory), ApplyCommand, 1);
+decorate(inject(TYPES.DefaultLockfilePath), ApplyCommand, 2);

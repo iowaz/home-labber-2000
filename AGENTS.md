@@ -14,6 +14,8 @@
   - `npm run apply`
   - `npm run apply:dry-run`
 - The `apply` command also supports `--slow-running` to inject a 700ms delay between work steps for CLI UX validation.
+- Managed state is tracked in the repo-root `homelab.lock.json` lockfile; keep it committed because it is used to prune stale managed resources and skip no-op applies.
+- `apply` also accepts `--lockfile <path>` and `--recreate-lockfile`.
 - Environment variables are loaded from the repo-root `.env` before CLI startup.
 - Keep `.env` untracked and maintain a scrubbed `.env.sample` whenever environment variables change.
 - Config is loaded from YAML files in `config/`:
@@ -43,6 +45,7 @@
 
 ## Validation Defaults
 - For behavior that affects live infra, prefer validating with `npm run apply:dry-run` before suggesting or attempting a real apply.
+- `--dry-run` validates and prepares changes without writing remote state or updating `homelab.lock.json`; the lockfile is updated only after successful real apply steps.
 - If a change affects config parsing or validation, inspect `src/config/config-loader.ts` and the related types first.
 - If a change affects routing/payload generation, inspect `src/services/caddy/caddy-service.ts` first.
 - If a change affects Cloudflare Tunnel publication or public DNS sync, inspect `config/cloudflare-tunnels.yaml`, `config/servers.yaml`, and `src/services/cloudflare/` first.
@@ -58,6 +61,8 @@
 - DNS rewrites should map each service `publish.caddy.hostname` to the IP of `publish.caddy.via`, not to the origin server IP, because DNS should route clients into the reverse proxy layer.
 - `cloudflare-tunnels.yaml` controls global Cloudflare auth/options; `options.sync_public_dns` defaults to true and should stay explicit when behavior matters.
 - Cloudflare Tunnel sync needs a repo-level `cloudflare-tunnels.account_id`, a token env var, and per-server `cloudflare-tunnel.tunnel_id` before real applies can succeed.
+- Lockfile-driven cleanup only removes resources that were previously recorded as managed by this repo; avoid hand-editing `homelab.lock.json` unless you are intentionally resetting managed history.
+- Target resolution should consider the union of config servers and lockfile servers so removals still reconcile after a server is deleted from YAML.
 
 ## Efficiency Rules For Future Sessions
 - Start by checking whether the request touches CLI registration, config loading, DI wiring, or Caddy service behavior.
