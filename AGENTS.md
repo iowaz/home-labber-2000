@@ -13,6 +13,7 @@
 - Current npm scripts:
   - `npm run apply`
   - `npm run apply:dry-run`
+  - `npm run test:e2e`
 - The `apply` command also supports `--slow-running` to inject a 700ms delay between work steps for CLI UX validation.
 - Managed state is tracked in the repo-root `homelab.lock.json` lockfile; keep it committed because it is used to prune stale managed resources and skip no-op applies.
 - `apply` also accepts `--lockfile <path>` and `--recreate-lockfile`.
@@ -34,6 +35,7 @@
 - Caddy payload/application logic lives in `src/services/caddy/`.
 - Cloudflare Tunnel ingress and optional public DNS sync logic lives in `src/services/cloudflare/`.
 - AdGuard Home DNS rewrite sync logic lives in `src/services/dns/`.
+- E2E tests live in `tests/e2e/` and use Node's built-in test runner with `--experimental-strip-types`.
 
 ## Working Style For This Repo
 - Before changing code, quickly inspect the impacted command, service, and config types instead of guessing.
@@ -50,6 +52,8 @@
 - If a change affects routing/payload generation, inspect `src/services/caddy/caddy-service.ts` first.
 - If a change affects Cloudflare Tunnel publication or public DNS sync, inspect `config/cloudflare-tunnels.yaml`, `config/servers.yaml`, and `src/services/cloudflare/` first.
 - If a change affects DNS rewrite sync, inspect `config/dns.yaml` and `src/services/dns/` first.
+- If a change affects CLI apply behavior, Caddy payloads, DNS rewrites, or lockfile skip/update behavior, prefer adding or updating `tests/e2e/` coverage and run `npm run test:e2e`.
+- The E2E suite starts local HTTP-compatible Caddy and AdGuard fixtures per test; this avoids live infrastructure writes while still exercising the CLI subprocess, HTTP requests, and lockfile output end to end.
 - When adding a new feature, also consider the safest local verification path and document it in the final response.
 
 ## Config Expectations

@@ -8,5 +8,5 @@
     "allowJs": false,
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "src/**/*.mts"]
+  "include": ["src/**/*.ts", "src/**/*.mts", "tests/**/*.mts"]
 }

@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "apply": "node --experimental-strip-types src/cli.mts apply",
-    "apply:dry-run": "node --experimental-strip-types src/cli.mts apply --dry-run"
+    "apply:dry-run": "node --experimental-strip-types src/cli.mts apply --dry-run",
+    "test:e2e": "node --experimental-strip-types --test tests/e2e/*.e2e.mts"
   },
   "dependencies": {
     "chalk": "^5.6.2",
