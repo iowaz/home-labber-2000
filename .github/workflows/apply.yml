@@ -1,0 +1,54 @@
+name: Apply Homelab Sync
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: homelab-apply-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    name: Apply
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+    timeout-minutes: 15
+    env:
+      ADGUARD_USERNAME: ${{ secrets.ADGUARD_USERNAME }}
+      ADGUARD_PASSWORD: ${{ secrets.ADGUARD_PASSWORD }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          test -n "$ADGUARD_USERNAME" || { echo "Missing ADGUARD_USERNAME secret." >&2; exit 1; }
+          test -n "$ADGUARD_PASSWORD" || { echo "Missing ADGUARD_PASSWORD secret." >&2; exit 1; }
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing CLOUDFLARE_API_TOKEN secret." >&2; exit 1; }
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate configuration with dry-run
+        run: npm run apply:dry-run
+
+      - name: Apply configuration
+        run: npm run apply

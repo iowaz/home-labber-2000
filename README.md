@@ -178,6 +178,20 @@ node --experimental-strip-types src/cli.mts apply --help
 
 Prefer `npm run apply:dry-run` before a real apply whenever you are changing routing, DNS, or server publication data.
 
+## GitHub Actions
+
+The repository includes [apply.yml](/home/diogo/Projetos/home-lab-machine-syncer/.github/workflows/apply.yml), which runs on every new commit to `main` and is also available through manual dispatch.
+
+This workflow is designed for a GitHub `self-hosted` runner on the same Raspberry Pi or trusted LAN segment that can reach the local Caddy Admin API and the rest of your homelab endpoints. A GitHub-hosted runner is not a good fit here because your Caddy API is intentionally unauthenticated on the local machine.
+
+Before enabling it:
+
+- Install a self-hosted GitHub Actions runner on the Raspberry Pi with the default `self-hosted`, `Linux`, and `ARM64` labels.
+- Add repository or environment secrets for `ADGUARD_USERNAME`, `ADGUARD_PASSWORD`, and `CLOUDFLARE_API_TOKEN`.
+- Make sure the runner host already has network access to your local Caddy Admin API, AdGuard Home API, and any Cloudflare endpoints you expect to use.
+
+The workflow uses `actions/setup-node` with npm dependency caching keyed from [package-lock.json](/home/diogo/Projetos/home-lab-machine-syncer/package-lock.json), exposes the required secrets as job environment variables, runs `npm ci`, executes `npm run apply:dry-run`, and only then executes `npm run apply`.
+
 ---
 
 <div align="center">
