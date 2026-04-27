@@ -1,10 +1,41 @@
 {
   "version": 1,
-  "updatedAt": "2026-04-25T03:05:37.284Z",
+  "updatedAt": "2026-04-27T03:44:15.815Z",
   "caddy": {
+    "nucbox": {
+      "adminUrl": "http://192.168.31.14:2019/load",
+      "payloadHash": "sha256:529064c5245d1c67c28e247fe7c731dd7fba3ed63aea89e47c9a2cc772b6152d",
+      "services": {
+        "jellyfin": {
+          "hostnames": [
+            "jellyfin.rede.local"
+          ],
+          "upstream": "192.168.31.14:8096"
+        },
+        "qbittorrent": {
+          "hostnames": [
+            "qbittorrent.rede.local",
+            "torrent.rede.local"
+          ],
+          "upstream": "192.168.31.14:8872"
+        },
+        "radarr": {
+          "hostnames": [
+            "radarr.rede.local"
+          ],
+          "upstream": "192.168.31.14:7878"
+        },
+        "sonarr": {
+          "hostnames": [
+            "sonarr.rede.local"
+          ],
+          "upstream": "192.168.31.14:8989"
+        }
+      }
+    },
     "raspberry-pi-5-ethernet": {
       "adminUrl": "http://127.0.0.1:2019/load",
-      "payloadHash": "sha256:0933218723b50d8ce0d27cfa80955af39b5e03b831729d522096b6b89bda38be",
+      "payloadHash": "sha256:bb2e0a664482e54d9ccf51a998e2d440e6065739ecf48655a928cda400c55d4f",
       "services": {
         "adguard": {
           "hostnames": [
@@ -42,12 +73,6 @@
           ],
           "upstream": "192.168.31.13:3110"
         },
-        "jellyfin": {
-          "hostnames": [
-            "jellyfin.rede.local"
-          ],
-          "upstream": "192.168.31.11:8096"
-        },
         "node-exporter": {
           "hostnames": [
             "node_exporter.rede.local"
@@ -66,36 +91,17 @@
           ],
           "upstream": "192.168.31.13:3107"
         },
-        "qbittorrent": {
-          "hostnames": [
-            "qbittorrent.rede.local",
-            "torrent.rede.local"
-          ],
-          "upstream": "192.168.31.11:8872"
-        },
         "qbittorrent-exporter": {
           "hostnames": [
             "qbittorrent-exporter.rede.local"
           ],
           "upstream": "192.168.31.13:17871"
         },
-        "radarr": {
-          "hostnames": [
-            "radarr.rede.local"
-          ],
-          "upstream": "192.168.31.11:7878"
-        },
         "readarr": {
           "hostnames": [
             "readarr.rede.local"
           ],
           "upstream": "192.168.31.13:3104"
-        },
-        "sonarr": {
-          "hostnames": [
-            "sonarr.rede.local"
-          ],
-          "upstream": "192.168.31.11:8989"
         },
         "transmission": {
           "hostnames": [
@@ -112,19 +118,19 @@
       "ingress": {
         "jellyfin": {
           "hostname": "jellyfin.diogocasteluber.com.br",
-          "service": "http://localhost:8096"
+          "service": "http://192.168.31.14:8096"
         },
         "qbittorrent": {
           "hostname": "qbittorrent.mac.diogocasteluber.com.br",
-          "service": "http://localhost:8872"
+          "service": "http://192.168.31.14:8872"
         },
         "radarr": {
           "hostname": "radarr.mac.diogocasteluber.com.br",
-          "service": "http://localhost:7878"
+          "service": "http://192.168.31.14:7878"
         },
         "sonarr": {
           "hostname": "sonarr.mac.diogocasteluber.com.br",
-          "service": "http://localhost:8989"
+          "service": "http://192.168.31.14:8989"
         }
       },
       "publicDns": {
@@ -173,6 +179,27 @@
     }
   },
   "dns": {
+    "nucbox": {
+      "provider": "ADGUARD_HOME",
+      "services": {
+        "jellyfin": {
+          "domain": "jellyfin.rede.local",
+          "answer": "192.168.31.14"
+        },
+        "qbittorrent": {
+          "domain": "qbittorrent.rede.local",
+          "answer": "192.168.31.14"
+        },
+        "radarr": {
+          "domain": "radarr.rede.local",
+          "answer": "192.168.31.14"
+        },
+        "sonarr": {
+          "domain": "sonarr.rede.local",
+          "answer": "192.168.31.14"
+        }
+      }
+    },
     "raspberry-pi-5-ethernet": {
       "provider": "ADGUARD_HOME",
       "services": {
@@ -200,10 +227,6 @@
           "domain": "grafana.rede.local",
           "answer": "192.168.31.13"
         },
-        "jellyfin": {
-          "domain": "jellyfin.rede.local",
-          "answer": "192.168.31.13"
-        },
         "node-exporter": {
           "domain": "node_exporter.rede.local",
           "answer": "192.168.31.13"
@@ -216,24 +239,12 @@
           "domain": "prowlarr.rede.local",
           "answer": "192.168.31.13"
         },
-        "qbittorrent": {
-          "domain": "qbittorrent.rede.local",
-          "answer": "192.168.31.13"
-        },
         "qbittorrent-exporter": {
           "domain": "qbittorrent-exporter.rede.local",
           "answer": "192.168.31.13"
         },
-        "radarr": {
-          "domain": "radarr.rede.local",
-          "answer": "192.168.31.13"
-        },
         "readarr": {
           "domain": "readarr.rede.local",
-          "answer": "192.168.31.13"
-        },
-        "sonarr": {
-          "domain": "sonarr.rede.local",
           "answer": "192.168.31.13"
         },
         "transmission": {

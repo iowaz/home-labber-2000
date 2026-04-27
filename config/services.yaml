@@ -43,13 +43,13 @@
 - id: qbittorrent
   description: qBittorrent web UI (running on Mac)
   origin:
-    server: mac
+    server: nucbox
     port: 8872
     healthcheck:
       url_path: /
   publish:
     caddy:
-      via: raspberry-pi-5-ethernet
+      via: nucbox
       hostname: qbittorrent.rede.local
       aliases:
         - torrent.rede.local
@@ -147,13 +147,13 @@
 - id: sonarr
   description: Sonarr TV series manager (running on Mac)
   origin:
-    server: mac
+    server: nucbox
     port: 8989
     healthcheck:
       url_path: /ping
   publish:
     caddy:
-      via: raspberry-pi-5-ethernet
+      via: nucbox
       hostname: sonarr.rede.local
     cloudflare-tunnel:
       via: mac
@@ -165,13 +165,13 @@
 - id: radarr
   description: Radarr movie manager (running on Mac)
   origin:
-    server: mac
+    server: nucbox
     port: 7878
     healthcheck:
       url_path: /ping
   publish:
     caddy:
-      via: raspberry-pi-5-ethernet
+      via: nucbox
       hostname: radarr.rede.local
     cloudflare-tunnel:
       via: mac
@@ -215,13 +215,13 @@
 - id: jellyfin
   description: Jellyfin Media Server (running on Mac)
   origin:
-    server: mac
+    server: nucbox
     port: 8096
     healthcheck:
       url_path: /
   publish:
     caddy:
-      via: raspberry-pi-5-ethernet
+      via: nucbox
       hostname: jellyfin.rede.local
     cloudflare-tunnel:
       via: mac

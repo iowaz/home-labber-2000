@@ -15,3 +15,13 @@
   cloudflare-tunnel:
     tunnel_id: 7c2cee41-2013-4e50-adf6-4b10e24b5f2e
     connector_id: 978448e8-ca0e-47fa-8023-708d258fd03a
+
+- id: nucbox
+  description: Nucbox M7 (Carol)
+  ip: 192.168.31.14
+  os: caddy-api
+  caddy-api:
+    url: http://192.168.31.14:2019/
+  cloudflare-tunnel:
+    tunnel_id: 33952613-76ae-44c6-97e9-19565125c9b7
+    connector_id: a07b895e-f2ab-4e3f-89d7-3410a8ebb614
