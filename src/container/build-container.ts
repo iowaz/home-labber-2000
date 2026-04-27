@@ -12,6 +12,7 @@ import { CloudflareTunnelService } from "../services/cloudflare/cloudflare-tunne
 import type { CloudflareTunnelServiceFactory } from "../services/cloudflare/types.ts";
 import { AdGuardHomeDnsService } from "../services/dns/adguard-home-dns-service.ts";
 import type { DnsServiceFactory } from "../services/dns/types.ts";
+import type { HttpTraceLogger } from "../services/http-trace.ts";
 import { TYPES } from "./identifiers.ts";
 
 export function buildContainer(defaultConfigDirectory: string, defaultLockfilePath: string): Container {
@@ -23,16 +24,26 @@ export function buildContainer(defaultConfigDirectory: string, defaultLockfilePa
   container.bind<LockfileStore>(TYPES.LockfileStore).to(JsonLockfileStore).inSingletonScope();
   container
     .bind<CaddyServiceFactory>(TYPES.CaddyServiceFactory)
-    .toConstantValue((server: ServerEntry, servers: ServerEntry[]) => new CaddyService(server, servers));
+    .toConstantValue(
+      (server: ServerEntry, servers: ServerEntry[], httpTraceLogger?: HttpTraceLogger) =>
+        new CaddyService(server, servers, httpTraceLogger),
+    );
   container
     .bind<CloudflareTunnelServiceFactory>(TYPES.CloudflareTunnelServiceFactory)
     .toConstantValue(
-      (config: CloudflareTunnelsConfig, server: ServerEntry, servers: ServerEntry[]) =>
-        new CloudflareTunnelService(config, server, servers),
+      (
+        config: CloudflareTunnelsConfig,
+        server: ServerEntry,
+        servers: ServerEntry[],
+        httpTraceLogger?: HttpTraceLogger,
+      ) => new CloudflareTunnelService(config, server, servers, httpTraceLogger),
     );
   container
     .bind<DnsServiceFactory>(TYPES.DnsServiceFactory)
-    .toConstantValue((config: DnsConfig) => new AdGuardHomeDnsService(config));
+    .toConstantValue(
+      (config: DnsConfig, httpTraceLogger?: HttpTraceLogger) =>
+        new AdGuardHomeDnsService(config, httpTraceLogger),
+    );
   container.bind<ApplyCommandRunner>(TYPES.ApplyCommandRunner).to(ApplyCommandRunner);
   container.bind<ApplyCommand>(TYPES.ApplyCommand).to(ApplyCommand);
 

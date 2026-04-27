@@ -444,6 +444,74 @@ test("apply syncs Caddy and AdGuard through HTTP APIs, writes managed lockfile s
   assert.equal(adguardApi.requests.length, 0, "unchanged DNS state should not call AdGuard Home");
 });
 
+test("apply --full-http-output prints request and response details for HTTP-backed operations", async (t) => {
+  const workspace = await createWorkspace();
+  const caddyApi = await startCaddyApiServer();
+  const adguardApi = await startAdGuardApiServer();
+
+  t.after(async () => {
+    await caddyApi.close();
+    await adguardApi.close();
+    await rm(workspace.root, { force: true, recursive: true });
+  });
+
+  const { hostname } = await writeBaseConfig(workspace, {
+    caddyApiUrl: caddyApi.baseUrl,
+    adguardApiUrl: adguardApi.baseUrl,
+  });
+
+  const result = await runCli([
+    "apply",
+    "--full-http-output",
+    "--config",
+    workspace.configDirectory,
+    "--lockfile",
+    workspace.lockfilePath,
+  ]);
+
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.match(result.stdout, /Caddy HTTP \| request POST http:\/\/127\.0\.0\.1:\d+\/load \| transport ky/);
+  assert.match(result.stdout, /Caddy HTTP \| request body \|/);
+  assert.match(result.stdout, new RegExp(`\\"${hostname}\\"`));
+  assert.match(result.stdout, /Caddy HTTP \| status 200/);
+  assert.match(result.stdout, /Caddy HTTP \| response body \| ok/);
+  assert.match(result.stdout, /AdGuard DNS HTTP \| request GET http:\/\/127\.0\.0\.1:\d+\/control\/rewrite\/list \| transport ky/);
+  assert.match(result.stdout, /AdGuard DNS HTTP \| request POST http:\/\/127\.0\.0\.1:\d+\/control\/rewrite\/add \| transport ky/);
+  assert.match(result.stdout, /authorization: <redacted>/);
+  assert.match(result.stdout, /AdGuard DNS HTTP \| response body \| \[\]/);
+  assert.match(result.stdout, /AdGuard DNS HTTP \| response body \| \{\}/);
+});
+
+test("apply --full-http-output prints attempted request details when an HTTP call fails before a response", async (t) => {
+  const workspace = await createWorkspace();
+  const caddyApi = await startCaddyApiServer();
+
+  t.after(async () => {
+    await caddyApi.close();
+    await rm(workspace.root, { force: true, recursive: true });
+  });
+
+  await writeBaseConfig(workspace, {
+    caddyApiUrl: caddyApi.baseUrl,
+    adguardApiUrl: "http://127.0.0.1:1",
+  });
+
+  const result = await runCli([
+    "apply",
+    "--full-http-output",
+    "--config",
+    workspace.configDirectory,
+    "--lockfile",
+    workspace.lockfilePath,
+  ]);
+
+  const output = `${result.stdout}\n${result.stderr}`;
+
+  assert.equal(result.exitCode, 1);
+  assert.match(output, /AdGuard DNS HTTP \| request GET http:\/\/127\.0\.0\.1:1\/control\/rewrite\/list \| transport ky/);
+  assert.match(output, /AdGuard DNS HTTP \| error /);
+});
+
 test("apply reports validation errors and does not create a lockfile for invalid config", async (t) => {
   const workspace = await createWorkspace();
 

@@ -7,6 +7,7 @@ import type { HomelabLockfile, LockfileStore, ManagedCloudflareTunnelServerState
 import type { CaddyServiceFactory } from "../services/caddy/types.ts";
 import type { CloudflareTunnelServiceFactory } from "../services/cloudflare/types.ts";
 import type { DnsRewriteSyncResult, DnsServiceFactory } from "../services/dns/types.ts";
+import type { HttpTraceLogger } from "../services/http-trace.ts";
 import {
   getCaddyServicesForTarget,
   getCloudflareTunnelServicesForTarget,
@@ -131,7 +132,11 @@ export class ApplyCommandRunner {
     });
 
     try {
-      const caddyService = this.caddyServiceFactory(target.server, config.servers);
+      const caddyService = this.caddyServiceFactory(
+        target.server,
+        config.servers,
+        this.createHttpTraceLogger(options, eventBus),
+      );
       const loadUrl = caddyService.getLoadUrl();
       const desiredState = caddyService.buildManagedState(target.services);
       const previousState = lockfile.caddy[target.server.id];
@@ -192,6 +197,7 @@ export class ApplyCommandRunner {
         config.cloudflareTunnels,
         target.server,
         config.servers,
+        this.createHttpTraceLogger(options, eventBus),
       );
       const previousState = lockfile.cloudflareTunnel[target.server.id];
       const desiredState = cloudflareService.buildManagedState(target.services, previousState);
@@ -286,7 +292,10 @@ export class ApplyCommandRunner {
     });
 
     try {
-      const dnsService = this.dnsServiceFactory(config.dns);
+      const dnsService = this.dnsServiceFactory(
+        config.dns,
+        this.createHttpTraceLogger(options, eventBus),
+      );
       const desiredState = dnsService.buildManagedState(target.server, dnsServices);
 
       if (!options.recreateLockfile && previousState && this.jsonEquals(previousState, desiredState)) {
@@ -425,6 +434,21 @@ export class ApplyCommandRunner {
     }
 
     await delay(ApplyCommandRunner.slowRunningDelayMs);
+  }
+
+  private createHttpTraceLogger(
+    options: ApplyOptions,
+    eventBus: ApplyCommandEventBus,
+  ): HttpTraceLogger | undefined {
+    if (!options.fullHttpOutput) {
+      return undefined;
+    }
+
+    return async (exchange) => {
+      await eventBus.emit(APPLY_COMMAND_EVENTS.httpTrace, {
+        exchange,
+      });
+    };
   }
 }
 

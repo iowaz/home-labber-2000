@@ -7,10 +7,12 @@ import type {
   CloudflareTunnelSyncResult,
 } from "../services/cloudflare/types.ts";
 import type { DnsRewriteSyncResult } from "../services/dns/types.ts";
+import type { HttpTraceExchange } from "../services/http-trace.ts";
 
 export interface ApplyOptions {
   config: string;
   dryRun?: boolean;
+  fullHttpOutput?: boolean;
   lockfile: string;
   recreateLockfile?: boolean;
   server?: string;
@@ -79,6 +81,10 @@ export interface ApplyTargetErrorEvent extends ApplyTargetEvent {
   error: unknown;
 }
 
+export interface ApplyHttpTraceEvent {
+  exchange: HttpTraceExchange;
+}
+
 export interface ApplyCompletedEvent {
   processedTargets: number;
   dryRun: boolean;
@@ -105,6 +111,7 @@ export const APPLY_COMMAND_EVENTS = {
   dnsSyncSkipped: "dns-sync-skipped",
   dnsSyncSuccess: "dns-sync-success",
   dnsSyncFailed: "dns-sync-failed",
+  httpTrace: "http-trace",
   completed: "completed",
 } as const;
 
@@ -129,6 +136,7 @@ export interface ApplyCommandEvents {
   [APPLY_COMMAND_EVENTS.dnsSyncSkipped]: ApplyTargetSkippedEvent;
   [APPLY_COMMAND_EVENTS.dnsSyncSuccess]: ApplyDnsSyncSuccessEvent;
   [APPLY_COMMAND_EVENTS.dnsSyncFailed]: ApplyTargetErrorEvent;
+  [APPLY_COMMAND_EVENTS.httpTrace]: ApplyHttpTraceEvent;
   [APPLY_COMMAND_EVENTS.completed]: ApplyCompletedEvent;
 }
 

@@ -1,5 +1,6 @@
 import type { DnsConfig, ServerEntry, ServiceEntry } from "../../config/types.ts";
 import type { ManagedDnsServerState } from "../../lockfile/types.ts";
+import type { HttpTraceLogger } from "../http-trace.ts";
 import type { AdGuardHomeDnsService } from "./adguard-home-dns-service.ts";
 
 export interface AdGuardRewriteEntry {
@@ -32,4 +33,7 @@ export type DnsSyncProgressHandler = (
   result: DnsRewriteSyncResult,
 ) => Promise<void> | void;
 
-export type DnsServiceFactory = (config: DnsConfig) => AdGuardHomeDnsService;
+export type DnsServiceFactory = (
+  config: DnsConfig,
+  httpTraceLogger?: HttpTraceLogger,
+) => AdGuardHomeDnsService;

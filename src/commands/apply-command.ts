@@ -37,6 +37,10 @@ export class ApplyCommand implements CliCommand {
         "--recreate-lockfile",
         "Force reconciliation and rewrite the managed state lockfile for the selected scope",
       )
+      .option(
+        "--full-http-output",
+        "Log full HTTP request and response details for remote operations",
+      )
       .option("--slow-running", "Add a 700ms delay to each apply operation for UX validation")
       .option("--server <id>", "Only apply Caddy-published services for one server id")
       .action(this.createActionHandler());
@@ -53,6 +57,7 @@ export class ApplyCommand implements CliCommand {
           {
             config: options.config,
             dryRun: Boolean(options.dryRun),
+            fullHttpOutput: Boolean(options.fullHttpOutput),
             lockfile: options.lockfile,
             recreateLockfile: Boolean(options.recreateLockfile),
             server: options.server,

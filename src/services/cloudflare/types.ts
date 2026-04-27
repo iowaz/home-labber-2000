@@ -4,6 +4,7 @@ import type {
   ServiceEntry,
 } from "../../config/types.ts";
 import type { ManagedCloudflareTunnelServerState } from "../../lockfile/types.ts";
+import type { HttpTraceLogger } from "../http-trace.ts";
 import type { CloudflareTunnelService } from "./cloudflare-tunnel-service.ts";
 
 export type CloudflareTunnelSyncAction = "create" | "delete" | "update" | "unchanged";
@@ -61,4 +62,5 @@ export type CloudflareTunnelServiceFactory = (
   config: CloudflareTunnelsConfig,
   server: ServerEntry,
   servers: ServerEntry[],
+  httpTraceLogger?: HttpTraceLogger,
 ) => CloudflareTunnelService;

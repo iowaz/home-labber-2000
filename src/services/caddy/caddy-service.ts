@@ -6,6 +6,12 @@ import ky from "ky";
 
 import type { ManagedCaddyServerState } from "../../lockfile/types.ts";
 import type { ServerEntry, ServiceEntry } from "../../config/types.ts";
+import {
+  formatHttpTraceBody,
+  redactHttpHeaders,
+  responseHeadersToRecord,
+  type HttpTraceLogger,
+} from "../http-trace.ts";
 import type { CaddyApplyResult, CaddyConfigPayload, CaddyRoute } from "./types.ts";
 
 function hasCaddyApi(server: ServerEntry): server is ServerEntry & { "caddy-api": { url: string } } {
@@ -15,8 +21,13 @@ function hasCaddyApi(server: ServerEntry): server is ServerEntry & { "caddy-api"
 export class CaddyService {
   public readonly server: ServerEntry & { "caddy-api": { url: string } };
   private readonly serversById: Map<string, ServerEntry>;
+  private readonly httpTraceLogger?: HttpTraceLogger;
 
-  public constructor(server: ServerEntry, servers: ServerEntry[]) {
+  public constructor(
+    server: ServerEntry,
+    servers: ServerEntry[],
+    httpTraceLogger?: HttpTraceLogger,
+  ) {
     if (!hasCaddyApi(server)) {
       throw new Error(`Server '${server.id}' does not define caddy-api.url.`);
     }
@@ -25,6 +36,7 @@ export class CaddyService {
     this.serversById = new Map(
       servers.map((entry: ServerEntry): [string, ServerEntry] => [entry.id, entry]),
     );
+    this.httpTraceLogger = httpTraceLogger;
   }
 
   public getLoadUrl(): string {
@@ -100,29 +112,66 @@ export class CaddyService {
   public async apply(services: ServiceEntry[]): Promise<CaddyApplyResult> {
     const loadUrl = this.getLoadUrl();
     const payload = this.buildConfigPayload(services);
-    const response = await ky.post(loadUrl, {
-      json: payload,
-      retry: 0,
-      throwHttpErrors: false,
-      headers: {
-        accept: "*/*",
-      },
+    const requestBody = formatHttpTraceBody(payload);
+    const requestHeaders = redactHttpHeaders({
+      accept: "*/*",
+      "content-type": "application/json",
     });
+    try {
+      const response = await ky.post(loadUrl, {
+        json: payload,
+        retry: 0,
+        throwHttpErrors: false,
+        headers: {
+          accept: "*/*",
+        },
+      });
 
-    const body = await response.text();
-    if (response.status === 403 && body.includes("client is not allowed to access from origin")) {
-      const fallback = await this.postJsonWithNativeHttp(loadUrl, payload);
+      const body = await response.text();
+      await this.httpTraceLogger?.({
+        operation: "caddy",
+        request: {
+          method: "POST",
+          url: loadUrl,
+          headers: requestHeaders,
+          body: requestBody,
+        },
+        response: {
+          statusCode: response.status,
+          statusText: response.statusText,
+          headers: responseHeadersToRecord(response.headers),
+          body,
+        },
+        transport: "ky",
+      });
+
+      if (response.status === 403 && body.includes("client is not allowed to access from origin")) {
+        const fallback = await this.postJsonWithNativeHttp(loadUrl, payload);
+        return {
+          ...fallback,
+          transport: "native",
+        };
+      }
+
       return {
-        ...fallback,
-        transport: "native",
+        statusCode: response.status,
+        body,
+        transport: "ky",
       };
+    } catch (error) {
+      await this.httpTraceLogger?.({
+        operation: "caddy",
+        request: {
+          method: "POST",
+          url: loadUrl,
+          headers: requestHeaders,
+          body: requestBody,
+        },
+        transport: "ky",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     }
-
-    return {
-      statusCode: response.status,
-      body,
-      transport: "ky",
-    };
   }
 
   private buildRoute(service: ServiceEntry): CaddyRoute {
@@ -195,15 +244,66 @@ export class CaddyService {
             responseBody += chunk;
           });
           response.on("end", () => {
-            resolve({
+            const result = {
               statusCode: response.statusCode ?? 0,
               body: responseBody,
-            });
+            };
+            Promise.resolve(
+              this.httpTraceLogger?.({
+                operation: "caddy",
+                request: {
+                  method: "POST",
+                  url: loadUrl,
+                  headers: redactHttpHeaders({
+                    "content-type": "application/json",
+                    "content-length": String(Buffer.byteLength(body)),
+                  }),
+                  body,
+                },
+                response: {
+                  statusCode: result.statusCode,
+                  statusText: response.statusMessage,
+                  headers: Object.fromEntries(
+                    Object.entries(response.headers).map(([name, value]) => [
+                      name,
+                      Array.isArray(value) ? value.join(", ") : String(value ?? ""),
+                    ]),
+                  ),
+                  body: responseBody,
+                },
+                transport: "native",
+              }),
+            )
+              .then(() => {
+                resolve(result);
+              })
+              .catch(reject);
           });
         },
       );
 
-      request.on("error", reject);
+      request.on("error", (error) => {
+        Promise.resolve(
+          this.httpTraceLogger?.({
+            operation: "caddy",
+            request: {
+              method: "POST",
+              url: loadUrl,
+              headers: redactHttpHeaders({
+                "content-type": "application/json",
+                "content-length": String(Buffer.byteLength(body)),
+              }),
+              body,
+            },
+            transport: "native",
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        )
+          .then(() => {
+            reject(error);
+          })
+          .catch(reject);
+      });
       request.write(body);
       request.end();
     });

@@ -1,4 +1,5 @@
 import type { ServerEntry, ServiceEntry } from "../../config/types.ts";
+import type { HttpTraceLogger } from "../http-trace.ts";
 import type { CaddyService } from "./caddy-service.ts";
 
 export interface CaddyRoute {
@@ -41,4 +42,8 @@ export interface CaddyApplyTarget {
   services: ServiceEntry[];
 }
 
-export type CaddyServiceFactory = (server: ServerEntry, servers: ServerEntry[]) => CaddyService;
+export type CaddyServiceFactory = (
+  server: ServerEntry,
+  servers: ServerEntry[],
+  httpTraceLogger?: HttpTraceLogger,
+) => CaddyService;

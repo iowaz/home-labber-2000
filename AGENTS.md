@@ -14,7 +14,9 @@
   - `npm run apply`
   - `npm run apply:dry-run`
   - `npm run test:e2e`
+- GitHub Actions apply automation lives in `.github/workflows/apply.yml` and is intended for a `self-hosted` runner on the Raspberry Pi / trusted LAN so it can reach the local Caddy API safely.
 - The `apply` command also supports `--slow-running` to inject a 700ms delay between work steps for CLI UX validation.
+- The `apply` command also supports `--full-http-output` to print sanitized HTTP request/response details for Caddy, Cloudflare, and AdGuard operations.
 - Managed state is tracked in the repo-root `homelab.lock.json` lockfile; keep it committed because it is used to prune stale managed resources and skip no-op applies.
 - `apply` also accepts `--lockfile <path>` and `--recreate-lockfile`.
 - Environment variables are loaded from the repo-root `.env` before CLI startup.

@@ -2,6 +2,12 @@ import ky from "ky";
 
 import type { DnsConfig, ServerEntry, ServiceEntry } from "../../config/types.ts";
 import type { ManagedDnsServerState } from "../../lockfile/types.ts";
+import {
+  formatHttpTraceBody,
+  redactHttpHeaders,
+  responseHeadersToRecord,
+  type HttpTraceLogger,
+} from "../http-trace.ts";
 import type {
   AdGuardRewriteEntry,
   DnsRewriteAction,
@@ -25,10 +31,12 @@ export class AdGuardHomeDnsService {
   private readonly config: DnsConfig;
   private readonly client: typeof ky;
   private readonly apiBaseUrl: string;
+  private readonly httpTraceLogger?: HttpTraceLogger;
 
-  public constructor(config: DnsConfig) {
+  public constructor(config: DnsConfig, httpTraceLogger?: HttpTraceLogger) {
     this.config = config;
     this.apiBaseUrl = withTrailingSlash(config.api_url);
+    this.httpTraceLogger = httpTraceLogger;
     this.client = ky.create({
       prefix: this.apiBaseUrl,
       retry: 0,
@@ -97,7 +105,7 @@ export class AdGuardHomeDnsService {
 
   private async listRewrites(): Promise<AdGuardRewriteEntry[]> {
     try {
-      return await this.client.get("rewrite/list").json<AdGuardRewriteEntry[]>();
+      return await this.request<AdGuardRewriteEntry[]>("GET", "rewrite/list");
     } catch (error) {
       throw new Error(
         `Failed to list AdGuard Home rewrites from ${this.apiBaseUrl}rewrite/list: ${this.formatError(error)}`,
@@ -189,11 +197,9 @@ export class AdGuardHomeDnsService {
 
     try {
       if (plan.action === "delete") {
-        await this.client.post("rewrite/delete", {
-          json: {
-            domain: plan.domain,
-            answer: plan.desiredAnswer,
-          },
+        await this.request("POST", "rewrite/delete", {
+          domain: plan.domain,
+          answer: plan.desiredAnswer,
         });
         return;
       }
@@ -201,21 +207,17 @@ export class AdGuardHomeDnsService {
       if (plan.action === "update") {
         await Promise.all(
           plan.currentAnswers.map((answer: string) =>
-            this.client.post("rewrite/delete", {
-              json: {
-                domain: plan.domain,
-                answer,
-              },
+            this.request("POST", "rewrite/delete", {
+              domain: plan.domain,
+              answer,
             }),
           ),
         );
       }
 
-      await this.client.post("rewrite/add", {
-        json: {
-          domain: plan.domain,
-          answer: plan.desiredAnswer,
-        },
+      await this.request("POST", "rewrite/add", {
+        domain: plan.domain,
+        answer: plan.desiredAnswer,
       });
     } catch (error) {
       throw new Error(
@@ -249,5 +251,68 @@ export class AdGuardHomeDnsService {
     }
 
     return String(error);
+  }
+
+  private async request<T = void>(
+    method: "GET" | "POST",
+    path: string,
+    json?: unknown,
+  ): Promise<T> {
+    const requestUrl = new URL(path, this.apiBaseUrl).toString();
+    const requestHeaders = redactHttpHeaders({
+      accept: "application/json",
+      authorization: this.buildAuthorizationHeader(),
+      ...(json ? { "content-type": "application/json" } : {}),
+    });
+    const requestBody = formatHttpTraceBody(json);
+
+    try {
+      const response = await this.client(path, {
+        method,
+        json,
+        throwHttpErrors: false,
+      });
+      const responseBody = await response.text();
+
+      await this.httpTraceLogger?.({
+        operation: "dns",
+        request: {
+          method,
+          url: requestUrl,
+          headers: requestHeaders,
+          body: requestBody,
+        },
+        response: {
+          statusCode: response.status,
+          statusText: response.statusText,
+          headers: responseHeadersToRecord(response.headers),
+          body: responseBody,
+        },
+        transport: "ky",
+      });
+
+      if (!response.ok) {
+        throw new Error(`Request failed with ${response.status}. ${responseBody}`);
+      }
+
+      if (responseBody.length === 0) {
+        return undefined as T;
+      }
+
+      return JSON.parse(responseBody) as T;
+    } catch (error) {
+      await this.httpTraceLogger?.({
+        operation: "dns",
+        request: {
+          method,
+          url: requestUrl,
+          headers: requestHeaders,
+          body: requestBody,
+        },
+        transport: "ky",
+        error: this.formatError(error),
+      });
+      throw error;
+    }
   }
 }

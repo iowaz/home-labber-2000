@@ -1,4 +1,4 @@
-import ky, { HTTPError, type Options } from "ky";
+import ky, { type Options } from "ky";
 
 import type {
   CloudflareTunnelsConfig,
@@ -18,6 +18,12 @@ import type {
   CloudflareTunnelSyncProgressHandler,
   CloudflareTunnelSyncResult,
 } from "./types.ts";
+import {
+  formatHttpTraceBody,
+  redactHttpHeaders,
+  responseHeadersToRecord,
+  type HttpTraceLogger,
+} from "../http-trace.ts";
 
 interface CloudflareApiEnvelope<T> {
   success: boolean;
@@ -55,6 +61,12 @@ interface SyncIngressRulesResult {
 interface SyncPublicDnsRoutesResult {
   lockState: ManagedCloudflareTunnelServerState["publicDns"];
   results: CloudflarePublicDnsSyncResult[];
+}
+
+interface CloudflareRequestError extends Error {
+  requestMethod?: string;
+  requestUrl?: string;
+  responseStatus?: number;
 }
 
 function normalizePath(path: string | undefined): string | undefined {
@@ -100,8 +112,16 @@ export class CloudflareTunnelService {
   private readonly accountId: string;
   private readonly tunnelId: string;
   private readonly zoneIdsByName: Map<string, string>;
+  private readonly httpTraceLogger?: HttpTraceLogger;
+  private readonly apiBaseUrl: string;
+  private readonly authorizationHeader: string;
 
-  public constructor(config: CloudflareTunnelsConfig, server: ServerEntry, servers: ServerEntry[]) {
+  public constructor(
+    config: CloudflareTunnelsConfig,
+    server: ServerEntry,
+    servers: ServerEntry[],
+    httpTraceLogger?: HttpTraceLogger,
+  ) {
     if (!hasCloudflareTunnel(server)) {
       throw new Error(`Server '${server.id}' does not define cloudflare-tunnel config.`);
     }
@@ -138,13 +158,16 @@ export class CloudflareTunnelService {
     this.accountId = config.account_id;
     this.tunnelId = server["cloudflare-tunnel"].tunnel_id;
     this.zoneIdsByName = new Map<string, string>();
+    this.httpTraceLogger = httpTraceLogger;
+    this.apiBaseUrl = "https://api.cloudflare.com/client/v4/";
+    this.authorizationHeader = `Bearer ${apiToken}`;
     this.client = ky.create({
-      prefix: "https://api.cloudflare.com/client/v4/",
+      prefix: this.apiBaseUrl,
       retry: 0,
       timeout: 20_000,
       headers: {
         accept: "application/json",
-        authorization: `Bearer ${apiToken}`,
+        authorization: this.authorizationHeader,
         "content-type": "application/json",
       },
     });
@@ -734,42 +757,110 @@ export class CloudflareTunnelService {
     input: string,
     options?: Options,
   ): Promise<T> {
+    const requestMethod = options?.method ?? "GET";
+    const requestUrl = this.buildRequestUrl(input, options);
+    const requestHeaders = redactHttpHeaders({
+      accept: "application/json",
+      authorization: this.authorizationHeader,
+      "content-type": "application/json",
+    });
+    const requestBody = formatHttpTraceBody(options?.json);
+
     try {
-      const response = await this.client(input, options).json<CloudflareApiEnvelope<T>>();
-      if (!response.success) {
-        const message = response.errors?.map((error) => error.message).filter(Boolean).join(", ");
+      const response = await this.client(input, {
+        ...options,
+        throwHttpErrors: false,
+      });
+      const responseBody = await response.text();
+
+      await this.httpTraceLogger?.({
+        operation: "cloudflare",
+        request: {
+          method: requestMethod,
+          url: requestUrl,
+          headers: requestHeaders,
+          body: requestBody,
+        },
+        response: {
+          statusCode: response.status,
+          statusText: response.statusText,
+          headers: responseHeadersToRecord(response.headers),
+          body: responseBody,
+        },
+        transport: "ky",
+      });
+
+      if (!response.ok) {
+        const error = new Error(`Cloudflare API request failed with ${response.status}.`) as CloudflareRequestError;
+        error.requestMethod = requestMethod;
+        error.requestUrl = requestUrl;
+        error.responseStatus = response.status;
+        throw error;
+      }
+
+      const envelope = JSON.parse(responseBody) as CloudflareApiEnvelope<T>;
+      if (!envelope.success) {
+        const message = envelope.errors?.map((error) => error.message).filter(Boolean).join(", ");
         throw new Error(message || "Cloudflare API returned an unsuccessful response.");
       }
-      return response.result;
+      return envelope.result;
     } catch (error) {
+      await this.httpTraceLogger?.({
+        operation: "cloudflare",
+        request: {
+          method: requestMethod,
+          url: requestUrl,
+          headers: requestHeaders,
+          body: requestBody,
+        },
+        transport: "ky",
+        error: this.formatError(error),
+      });
       throw new Error(this.formatError(error));
     }
   }
 
+  private buildRequestUrl(input: string, options?: Options): string {
+    const url = new URL(input, this.apiBaseUrl);
+
+    const searchParams = options?.searchParams;
+    if (searchParams instanceof URLSearchParams) {
+      url.search = searchParams.toString();
+    } else if (searchParams && typeof searchParams === "object") {
+      for (const [key, value] of Object.entries(searchParams)) {
+        if (value !== undefined) {
+          url.searchParams.set(key, String(value));
+        }
+      }
+    }
+
+    return url.toString();
+  }
+
   private formatError(error: unknown): string {
-    if (error instanceof HTTPError) {
-      const requestUrl = error.request.url;
-      if (error.response.status === 403 && requestUrl.includes("/dns_records")) {
+    if (error instanceof Error) {
+      const cloudflareError = error as CloudflareRequestError;
+      const requestUrl = cloudflareError.requestUrl;
+      const responseStatus = cloudflareError.responseStatus;
+      const requestMethod = cloudflareError.requestMethod;
+
+      if (responseStatus === 403 && requestUrl?.includes("/dns_records")) {
         return [
           "Cloudflare DNS API request was forbidden.",
           "cloudflare-tunnels.options.sync_public_dns requires a token with Cloudflare DNS permissions",
           "(at minimum DNS Read/DNS Write for the target zone).",
-          `Request: ${error.request.method} ${requestUrl}`,
+          `Request: ${requestMethod} ${requestUrl}`,
         ].join(" ");
       }
 
-      if (error.response.status === 403 && requestUrl.includes("/zones")) {
+      if (responseStatus === 403 && requestUrl?.includes("/zones")) {
         return [
           "Cloudflare zone lookup was forbidden.",
           "Resolving public DNS zones requires a token with Zone Read permission.",
-          `Request: ${error.request.method} ${requestUrl}`,
+          `Request: ${requestMethod} ${requestUrl}`,
         ].join(" ");
       }
 
-      return `Cloudflare API request failed: ${error.message}`;
-    }
-
-    if (error instanceof Error) {
       return error.message;
     }
 

@@ -22,6 +22,7 @@ import {
   type ApplyConfigLoadStartEvent,
   type ApplyDnsSyncProgressEvent,
   type ApplyDnsSyncSuccessEvent,
+  type ApplyHttpTraceEvent,
   type ApplyTarget,
   type ApplyTargetErrorEvent,
   type ApplyTargetSkippedEvent,
@@ -37,6 +38,7 @@ import {
   buildDnsDryRunResultLine,
   buildDnsIntentLine,
   buildDnsResultLine,
+  buildHttpTraceLines,
   buildProgressLine,
   buildServiceSummaryLines,
   buildSkippedResultLine,
@@ -121,6 +123,9 @@ export class ApplyCliReporter {
       }),
       eventBus.on(APPLY_COMMAND_EVENTS.dnsSyncFailed, (event) => {
         this.onDnsSyncFailed(event.data);
+      }),
+      eventBus.on(APPLY_COMMAND_EVENTS.httpTrace, (event) => {
+        this.onHttpTrace(event.data);
       }),
       eventBus.on(APPLY_COMMAND_EVENTS.completed, (event) => {
         this.onCompleted(event.data);
@@ -327,6 +332,12 @@ export class ApplyCliReporter {
       `${formatPhaseLabel("dns")} | ${formatServerLabel(event.target.server)} | rewrite sync failed.`,
     );
     this.dnsProgress = undefined;
+  }
+
+  private onHttpTrace(event: ApplyHttpTraceEvent): void {
+    for (const line of buildHttpTraceLines(event.exchange)) {
+      console.log(line);
+    }
   }
 
   private onCompleted(event: ApplyCompletedEvent): void {

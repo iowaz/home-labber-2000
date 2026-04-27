@@ -7,6 +7,7 @@ import type {
   CloudflareTunnelSyncResult,
 } from "../services/cloudflare/types.ts";
 import type { DnsRewriteSyncResult } from "../services/dns/types.ts";
+import type { HttpTraceExchange, HttpTraceOperation } from "../services/http-trace.ts";
 
 export interface OperationProgressState {
   failed: number;
@@ -238,9 +239,87 @@ export function buildSkippedResultLine(
   return `${formatPhaseLabel(phase)} | ${formatServerLabel(server)} | ${chalk.gray(`skipped (${reason})`)}`;
 }
 
+export function buildHttpTraceLines(exchange: HttpTraceExchange): string[] {
+  const lines = [
+    buildHttpTraceSummaryLine(exchange),
+    ...buildHttpTraceDetailLines(exchange.operation, "request headers", exchange.request.headers),
+    ...buildHttpTraceBodyLines(exchange.operation, "request body", exchange.request.body),
+  ];
+
+  if (exchange.response) {
+    lines.push(buildHttpTraceStatusLine(exchange));
+    lines.push(...buildHttpTraceDetailLines(exchange.operation, "response headers", exchange.response.headers));
+    lines.push(...buildHttpTraceBodyLines(exchange.operation, "response body", exchange.response.body));
+  }
+
+  if (exchange.error) {
+    lines.push(
+      `${formatHttpTraceLabel(exchange.operation)} | ${chalk.red("error")} ${chalk.white(exchange.error)}`,
+    );
+  }
+
+  return lines;
+}
+
 function buildOriginHeaderLine(originServer: ServerEntry, serviceCount: number): string {
   const countLabel = serviceCount === 1 ? "service" : "services";
   return `${formatOperationLabel("config")} | ${chalk.bold(originServer.id)} ${chalk.gray(`(${originServer.description})`)} ${chalk.yellow(`:${serviceCount} ${countLabel}`)}`;
+}
+
+function buildHttpTraceSummaryLine(exchange: HttpTraceExchange): string {
+  const methodColor = exchange.request.method === "GET" ? chalk.cyan : chalk.green;
+  const transport = exchange.transport ? ` | ${chalk.gray("transport")} ${chalk.white(exchange.transport)}` : "";
+  return `${formatHttpTraceLabel(exchange.operation)} | ${chalk.gray("request")} ${methodColor(exchange.request.method)} ${chalk.cyan(exchange.request.url)}${transport}`;
+}
+
+function buildHttpTraceStatusLine(exchange: HttpTraceExchange): string {
+  const response = exchange.response;
+  if (!response) {
+    return `${formatHttpTraceLabel(exchange.operation)} | ${chalk.gray("status")} ${chalk.gray("n/a")}`;
+  }
+
+  const statusColor =
+    response.statusCode >= 500 ? chalk.red : response.statusCode >= 400 ? chalk.yellow : chalk.green;
+  const statusText = response.statusText ? ` ${chalk.gray(response.statusText)}` : "";
+  return `${formatHttpTraceLabel(exchange.operation)} | ${chalk.gray("status")} ${statusColor(String(response.statusCode))}${statusText}`;
+}
+
+function buildHttpTraceDetailLines(
+  operation: HttpTraceOperation,
+  label: string,
+  values?: Record<string, string>,
+): string[] {
+  if (!values || Object.keys(values).length === 0) {
+    return [];
+  }
+
+  return Object.entries(values)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(
+      ([name, value]) =>
+        `${formatHttpTraceLabel(operation)} | ${chalk.gray(label)} | ${chalk.yellow(name)}: ${chalk.white(value)}`,
+    );
+}
+
+function buildHttpTraceBodyLines(
+  operation: HttpTraceOperation,
+  label: string,
+  body?: string,
+): string[] {
+  if (!body) {
+    return [];
+  }
+
+  return body
+    .split("\n")
+    .map(
+      (line) =>
+        `${formatHttpTraceLabel(operation)} | ${chalk.gray(label)} | ${chalk.white(line.length > 0 ? line : " ")}`,
+    );
+}
+
+function formatHttpTraceLabel(operation: HttpTraceOperation): string {
+  return `${formatPhaseLabel(operation)} ${chalk.gray("HTTP")}`;
 }
 
 function buildServiceDetailLine(
