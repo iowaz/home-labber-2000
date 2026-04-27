@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-04-27T03:44:15.815Z",
+  "updatedAt": "2026-04-27T04:06:19.192Z",
   "caddy": {
     "nucbox": {
       "adminUrl": "http://192.168.31.14:2019/load",
@@ -183,19 +183,28 @@
       "provider": "ADGUARD_HOME",
       "services": {
         "jellyfin": {
-          "domain": "jellyfin.rede.local",
+          "domains": [
+            "jellyfin.rede.local"
+          ],
           "answer": "192.168.31.14"
         },
         "qbittorrent": {
-          "domain": "qbittorrent.rede.local",
+          "domains": [
+            "qbittorrent.rede.local",
+            "torrent.rede.local"
+          ],
           "answer": "192.168.31.14"
         },
         "radarr": {
-          "domain": "radarr.rede.local",
+          "domains": [
+            "radarr.rede.local"
+          ],
           "answer": "192.168.31.14"
         },
         "sonarr": {
-          "domain": "sonarr.rede.local",
+          "domains": [
+            "sonarr.rede.local"
+          ],
           "answer": "192.168.31.14"
         }
       }
@@ -204,51 +213,75 @@
       "provider": "ADGUARD_HOME",
       "services": {
         "adguard": {
-          "domain": "adguard.rede.local",
+          "domains": [
+            "adguard.rede.local"
+          ],
           "answer": "192.168.31.13"
         },
         "adguardhome": {
-          "domain": "adguardhome.rede.local",
+          "domains": [
+            "adguardhome.rede.local"
+          ],
           "answer": "192.168.31.13"
         },
         "bazarr": {
-          "domain": "bazarr.rede.local",
+          "domains": [
+            "bazarr.rede.local"
+          ],
           "answer": "192.168.31.13"
         },
         "flaresolverr": {
-          "domain": "flaresolverr.rede.local",
+          "domains": [
+            "flaresolverr.rede.local"
+          ],
           "answer": "192.168.31.13"
         },
         "flood": {
-          "domain": "flood.rede.local",
+          "domains": [
+            "flood.rede.local"
+          ],
           "answer": "192.168.31.13"
         },
         "grafana": {
-          "domain": "grafana.rede.local",
+          "domains": [
+            "grafana.rede.local"
+          ],
           "answer": "192.168.31.13"
         },
         "node-exporter": {
-          "domain": "node_exporter.rede.local",
+          "domains": [
+            "node_exporter.rede.local"
+          ],
           "answer": "192.168.31.13"
         },
         "prometheus": {
-          "domain": "prometheus.rede.local",
+          "domains": [
+            "prometheus.rede.local"
+          ],
           "answer": "192.168.31.13"
         },
         "prowlarr": {
-          "domain": "prowlarr.rede.local",
+          "domains": [
+            "prowlarr.rede.local"
+          ],
           "answer": "192.168.31.13"
         },
         "qbittorrent-exporter": {
-          "domain": "qbittorrent-exporter.rede.local",
+          "domains": [
+            "qbittorrent-exporter.rede.local"
+          ],
           "answer": "192.168.31.13"
         },
         "readarr": {
-          "domain": "readarr.rede.local",
+          "domains": [
+            "readarr.rede.local"
+          ],
           "answer": "192.168.31.13"
         },
         "transmission": {
-          "domain": "transmission.rede.local",
+          "domains": [
+            "transmission.rede.local"
+          ],
           "answer": "192.168.31.13"
         }
       }

@@ -394,7 +394,7 @@ test("apply syncs Caddy and AdGuard through HTTP APIs, writes managed lockfile s
 
   assert.equal(firstApply.exitCode, 0, firstApply.stderr);
   assert.match(firstApply.stdout, /1 routes applied/);
-  assert.match(firstApply.stdout, /1 create/);
+  assert.match(firstApply.stdout, /2 create/);
 
   assert.equal(caddyApi.requests.length, 1, "first apply should POST one Caddy payload");
   assert.equal(caddyApi.requests[0]?.method, "POST");
@@ -407,23 +407,27 @@ test("apply syncs Caddy and AdGuard through HTTP APIs, writes managed lockfile s
 
   assert.deepEqual(
     adguardApi.requests.map((request) => `${request.method} ${request.path}`),
-    ["GET /control/rewrite/list", "POST /control/rewrite/add"],
+    ["GET /control/rewrite/list", "POST /control/rewrite/add", "POST /control/rewrite/add"],
   );
   assert.deepEqual(adguardApi.requests[1]?.body, {
+    domain: alias,
+    answer: "10.77.0.10",
+  });
+  assert.deepEqual(adguardApi.requests[2]?.body, {
     domain: hostname,
     answer: "10.77.0.10",
   });
 
   const lockfile = JSON.parse(await readFile(workspace.lockfilePath, "utf8")) as {
     caddy: Record<string, { services: Record<string, { hostnames: string[]; upstream: string }> }>;
-    dns: Record<string, { services: Record<string, { domain: string; answer: string }> }>;
+    dns: Record<string, { services: Record<string, { domains: string[]; answer: string }> }>;
   };
   assert.deepEqual(lockfile.caddy["caddy-publish"]?.services[serviceId], {
     hostnames: [hostname, alias],
     upstream: "10.77.0.20:8080",
   });
   assert.deepEqual(lockfile.dns["caddy-publish"]?.services[serviceId], {
-    domain: hostname,
+    domains: [hostname, alias].sort((left, right) => left.localeCompare(right)),
     answer: "10.77.0.10",
   });
 

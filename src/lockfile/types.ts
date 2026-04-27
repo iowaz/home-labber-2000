@@ -29,7 +29,7 @@ export interface ManagedCloudflareTunnelServerState {
 }
 
 export interface ManagedDnsServiceState {
-  domain: string;
+  domains: string[];
   answer: string;
 }
 

@@ -154,7 +154,13 @@ function normalizeDnsState(value: unknown): Record<string, ManagedDnsServerState
                     .map(([serviceId, serviceState]) => [
                       serviceId,
                       {
-                        domain: typeof serviceState.domain === "string" ? serviceState.domain : "",
+                        domains: Array.isArray(serviceState.domains)
+                          ? [...new Set(serviceState.domains.filter((domain): domain is string => typeof domain === "string"))].sort((left, right) =>
+                              left.localeCompare(right),
+                            )
+                          : typeof serviceState.domain === "string"
+                            ? [serviceState.domain]
+                            : [],
                         answer: typeof serviceState.answer === "string" ? serviceState.answer : "",
                       },
                     ]),

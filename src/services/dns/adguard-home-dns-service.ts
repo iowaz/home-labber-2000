@@ -84,8 +84,8 @@ export class AdGuardHomeDnsService {
           .slice()
           .sort((left: ServiceEntry, right: ServiceEntry) => left.id.localeCompare(right.id))
           .map((service: ServiceEntry) => {
-            const domain = service.publish.caddy?.hostname;
-            if (!domain) {
+            const domains = this.getManagedDomains(service);
+            if (domains.length === 0) {
               throw new Error(
                 `Service '${service.id}' does not define publish.caddy.hostname for DNS sync.`,
               );
@@ -94,7 +94,7 @@ export class AdGuardHomeDnsService {
             return [
               service.id,
               {
-                domain,
+                domains,
                 answer: server.ip,
               },
             ];
@@ -127,55 +127,74 @@ export class AdGuardHomeDnsService {
       rewritesByDomain.set(rewrite.domain, domainRewrites);
     }
 
-    const desiredPlans = services.map((service: ServiceEntry): ServiceRewritePlan => {
-      const domain = service.publish.caddy?.hostname;
-      if (!domain) {
+    const desiredPlans = services.flatMap((service: ServiceEntry): ServiceRewritePlan[] => {
+      const domains = this.getManagedDomains(service);
+      if (domains.length === 0) {
         throw new Error(
           `Service '${service.id}' does not define publish.caddy.hostname for DNS sync.`,
         );
       }
 
-      const desiredAnswer = server.ip;
-      const currentRewrites = rewritesByDomain.get(domain) ?? [];
-      const currentAnswers = currentRewrites.map((rewrite: AdGuardRewriteEntry) => rewrite.answer);
-      const action = this.determineAction(currentAnswers, desiredAnswer);
+      return domains.map((domain: string): ServiceRewritePlan => {
+        const desiredAnswer = server.ip;
+        const currentRewrites = rewritesByDomain.get(domain) ?? [];
+        const currentAnswers = currentRewrites.map((rewrite: AdGuardRewriteEntry) => rewrite.answer);
+        const action = this.determineAction(currentAnswers, desiredAnswer);
 
-      return {
-        service,
-        serviceId: service.id,
-        server,
-        domain,
-        desiredAnswer,
-        currentAnswers,
-        action,
-      };
+        return {
+          service,
+          serviceId: service.id,
+          server,
+          domain,
+          desiredAnswer,
+          currentAnswers,
+          action,
+        };
+      });
     });
 
-    const desiredByServiceId = new Map<string, string>(
-      services.map((service: ServiceEntry): [string, string] => {
-        const domain = service.publish.caddy?.hostname;
-        if (!domain) {
+    const desiredByServiceId = new Map<string, string[]>(
+      services.map((service: ServiceEntry): [string, string[]] => {
+        const domains = this.getManagedDomains(service);
+        if (domains.length === 0) {
           throw new Error(
             `Service '${service.id}' does not define publish.caddy.hostname for DNS sync.`,
           );
         }
 
-        return [service.id, domain];
+        return [service.id, domains];
       }),
     );
     const deletionPlans = Object.entries(previousState?.services ?? {})
-      .filter(([serviceId, serviceState]) => desiredByServiceId.get(serviceId) !== serviceState.domain)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([serviceId, serviceState]): ServiceRewritePlan => ({
-        serviceId,
-        server,
-        domain: serviceState.domain,
-        desiredAnswer: serviceState.answer,
-        currentAnswers: [serviceState.answer],
-        action: "delete",
-      }));
+      .flatMap(([serviceId, serviceState]): ServiceRewritePlan[] => {
+        const desiredDomains = new Set(desiredByServiceId.get(serviceId) ?? []);
+        return serviceState.domains
+          .filter((domain: string) => !desiredDomains.has(domain))
+          .map((domain: string): ServiceRewritePlan => ({
+            serviceId,
+            server,
+            domain,
+            desiredAnswer: serviceState.answer,
+            currentAnswers: [serviceState.answer],
+            action: "delete",
+          }));
+      })
+      .sort((left: ServiceRewritePlan, right: ServiceRewritePlan) =>
+        left.serviceId.localeCompare(right.serviceId) || left.domain.localeCompare(right.domain),
+      );
 
     return [...desiredPlans, ...deletionPlans];
+  }
+
+  private getManagedDomains(service: ServiceEntry): string[] {
+    const primaryDomain = service.publish.caddy?.hostname;
+    if (!primaryDomain) {
+      return [];
+    }
+
+    return [...new Set([primaryDomain, ...(service.publish.caddy?.aliases ?? [])])].sort((left, right) =>
+      left.localeCompare(right),
+    );
   }
 
   private determineAction(currentAnswers: string[], desiredAnswer: string): DnsRewriteAction {
