@@ -133,6 +133,7 @@ export class ApplyCliReporter {
     ];
 
     return (): void => {
+      this.stopAllSpinners();
       for (const unsubscribe of unsubscribers) {
         unsubscribe();
       }
@@ -149,6 +150,7 @@ export class ApplyCliReporter {
     this.loadSpinner?.succeed(
       `${formatOperationLabel("config")} | Loaded ${event.config.services.length} services from ${chalk.cyan(event.configDirectory)}.`,
     );
+    this.loadSpinner = undefined;
 
     console.log(`${formatOperationLabel("config")} | ${chalk.bold("Origins")}`);
     const serviceLines = buildServiceSummaryLines(event.config);
@@ -188,12 +190,14 @@ export class ApplyCliReporter {
 
   private onCaddyDryRun(event: ApplyCaddyDryRunEvent): void {
     this.caddySpinner?.stop();
+    this.caddySpinner = undefined;
     console.log(`${formatPhaseLabel("caddy")} | ${chalk.gray(`POST ${event.loadUrl}`)}`);
     console.log(buildCaddyDryRunResultLine(event.target.server, event.target.services));
   }
 
   private onCaddySyncSuccess(event: ApplyCaddySyncSuccessEvent): void {
     this.caddySpinner?.stop();
+    this.caddySpinner = undefined;
     console.log(
       buildCaddyResultLine(event.target.server, event.target.services, event.response.transport),
     );
@@ -201,6 +205,7 @@ export class ApplyCliReporter {
 
   private onCaddySyncSkipped(event: ApplyTargetSkippedEvent): void {
     this.caddySpinner?.stop();
+    this.caddySpinner = undefined;
     console.log(buildSkippedResultLine("caddy", event.target.server, event.reason));
   }
 
@@ -238,6 +243,7 @@ export class ApplyCliReporter {
 
   private onCloudflareDryRun(event: ApplyCloudflareDryRunEvent): void {
     this.cloudflareSpinner?.stop();
+    this.cloudflareSpinner = undefined;
     console.log(
       buildCloudflareDryRunResultLine(
         event.target.server,
@@ -249,6 +255,7 @@ export class ApplyCliReporter {
 
   private onCloudflareSyncSuccess(event: ApplyCloudflareSyncSuccessEvent): void {
     this.cloudflareSpinner?.stop();
+    this.cloudflareSpinner = undefined;
     this.cloudflareProgress = undefined;
     console.log(buildCloudflareResultLine(event.target.server, event.result));
 
@@ -261,6 +268,7 @@ export class ApplyCliReporter {
 
   private onCloudflareSyncSkipped(event: ApplyTargetSkippedEvent): void {
     this.cloudflareSpinner?.stop();
+    this.cloudflareSpinner = undefined;
     this.cloudflareProgress = undefined;
     console.log(buildSkippedResultLine("cloudflare", event.target.server, event.reason));
   }
@@ -307,6 +315,7 @@ export class ApplyCliReporter {
 
   private onDnsSyncSuccess(event: ApplyDnsSyncSuccessEvent): void {
     this.dnsSpinner?.stop();
+    this.dnsSpinner = undefined;
     this.dnsProgress = undefined;
     console.log(buildDnsResultLine(event.target.server, event.results));
 
@@ -315,6 +324,7 @@ export class ApplyCliReporter {
 
   private onDnsSyncSkipped(event: ApplyTargetSkippedEvent): void {
     this.dnsSpinner?.stop();
+    this.dnsSpinner = undefined;
     this.dnsProgress = undefined;
     console.log(buildSkippedResultLine("dns", event.target.server, event.reason));
   }
@@ -356,6 +366,19 @@ export class ApplyCliReporter {
     }
 
     spinner.text = buildProgressLine(progress, label);
+  }
+
+  private stopAllSpinners(): void {
+    this.loadSpinner?.stop();
+    this.caddySpinner?.stop();
+    this.cloudflareSpinner?.stop();
+    this.dnsSpinner?.stop();
+    this.loadSpinner = undefined;
+    this.caddySpinner = undefined;
+    this.cloudflareSpinner = undefined;
+    this.dnsSpinner = undefined;
+    this.cloudflareProgress = undefined;
+    this.dnsProgress = undefined;
   }
 
   private logDnsResults(results: DnsRewriteSyncResult[]): void {
