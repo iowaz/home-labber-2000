@@ -1,0 +1,5 @@
+# <type>(<scope>): <summary>
+#
+# Explain what changed and why.
+#
+# Configured ai.coauthor entries are appended automatically by .githooks/commit-msg.

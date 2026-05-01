@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+commit_msg_file=${1:?}
+added_separator=0
+
+mapfile -t coauthors < <(git config --get-all ai.coauthor || true)
+
+if [ "${#coauthors[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+if ! grep -qE '^[[:space:]]*[^#[:space:]]' "$commit_msg_file"; then
+  exit 0
+fi
+
+for coauthor in "${coauthors[@]}"; do
+  if [ -z "${coauthor//[[:space:]]/}" ]; then
+    continue
+  fi
+
+  if [[ "$coauthor" == Co-authored-by:* ]]; then
+    trailer=$coauthor
+  else
+    trailer="Co-authored-by: $coauthor"
+  fi
+
+  if grep -Fqx "$trailer" "$commit_msg_file"; then
+    continue
+  fi
+
+  if [ "$added_separator" -eq 0 ]; then
+    last_char=$(tail -c 1 "$commit_msg_file" 2>/dev/null || true)
+
+    if [ -n "$last_char" ]; then
+      printf '\n' >> "$commit_msg_file"
+    fi
+
+    printf '\n' >> "$commit_msg_file"
+    added_separator=1
+  fi
+
+  printf '%s\n' "$trailer" >> "$commit_msg_file"
+done

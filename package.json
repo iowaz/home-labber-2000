@@ -5,6 +5,7 @@
   "scripts": {
     "apply": "node --experimental-strip-types src/cli.mts apply",
     "apply:dry-run": "node --experimental-strip-types src/cli.mts apply --dry-run",
+    "setup:codex-coauthor": "bash scripts/setup-codex-coauthor.sh",
     "test:e2e": "node --experimental-strip-types --test tests/e2e/*.e2e.mts"
   },
   "dependencies": {
