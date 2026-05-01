@@ -69,6 +69,7 @@
 - DNS rewrites should map each service `publish.caddy.hostname` to the IP of `publish.caddy.via`, not to the origin server IP, because DNS should route clients into the reverse proxy layer.
 - `cloudflare-tunnels.yaml` controls global Cloudflare auth/options; `options.sync_public_dns` defaults to true and should stay explicit when behavior matters.
 - Cloudflare Tunnel sync needs a repo-level `cloudflare-tunnels.account_id`, a token env var, and per-server `cloudflare-tunnel.tunnel_id` before real applies can succeed.
+- Prefer one-label public Cloudflare hostnames such as `service-mac.diogocasteluber.com.br`; deeper names like `service.mac.diogocasteluber.com.br` require matching edge certificate coverage and can fail TLS before HTTP reaches the tunnel.
 - Lockfile-driven cleanup only removes resources that were previously recorded as managed by this repo; avoid hand-editing `homelab.lock.json` unless you are intentionally resetting managed history.
 - Target resolution should consider the union of config servers and lockfile servers so removals still reconcile after a server is deleted from YAML.
 

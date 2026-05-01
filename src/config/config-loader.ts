@@ -19,6 +19,10 @@ import type {
 
 type UnknownRecord = Record<string, unknown>;
 
+const compoundPublicSuffixes = new Set<string>([
+  "com.br",
+]);
+
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -80,6 +84,15 @@ function validateUrlPath(urlPath: string): boolean {
 
 function validateCloudflareTunnelPath(value: string): boolean {
   return value === "*" || value.startsWith("/");
+}
+
+function isCloudflareUniversalSslCoveredHostname(hostname: string): boolean {
+  const labels = hostname.toLowerCase().split(".");
+  const publicSuffixLabelCount = compoundPublicSuffixes.has(labels.slice(-2).join(".")) ? 2 : 1;
+  const registrableDomainLabelCount = publicSuffixLabelCount + 1;
+  const coveredLabelCount = registrableDomainLabelCount + 1;
+
+  return labels.length <= coveredLabelCount;
 }
 
 function validateHttpUrl(url: string, field: string, issues: string[]): void {
@@ -409,6 +422,10 @@ function parseServices(value: unknown, issues: string[]): ServiceEntry[] {
       if (!validateHostname(hostname)) {
         issues.push(
           `services[${index}].publish.cloudflare-tunnel.hostname must be a valid hostname.`,
+        );
+      } else if (!isCloudflareUniversalSslCoveredHostname(hostname)) {
+        issues.push(
+          `services[${index}].publish.cloudflare-tunnel.hostname '${hostname}' is too deep for default Cloudflare Universal SSL coverage. Use a one-label public hostname such as service.diogocasteluber.com.br or service-mac.diogocasteluber.com.br, or provision matching edge certificate coverage before adding nested hostnames.`,
         );
       }
 

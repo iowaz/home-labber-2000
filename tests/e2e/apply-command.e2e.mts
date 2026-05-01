@@ -651,3 +651,83 @@ options:
   );
   await assert.rejects(readFile(workspace.lockfilePath, "utf8"), { code: "ENOENT" });
 });
+
+test("apply rejects nested Cloudflare Tunnel hostnames outside default edge certificate coverage", async (t) => {
+  const workspace = await createWorkspace();
+
+  t.after(async () => {
+    await rm(workspace.root, { force: true, recursive: true });
+  });
+
+  await writeConfigFile(
+    workspace,
+    "cloudflare-tunnels.yaml",
+    `
+account_id: "e2e-account"
+auth:
+  api_token_env: TEST_CLOUDFLARE_API_TOKEN
+options:
+  sync_public_dns: false
+`,
+  );
+  await writeConfigFile(
+    workspace,
+    "dns.yaml",
+    `
+type: ADGUARD_HOME
+api_url: http://127.0.0.1:1/control
+auth:
+  username_env: TEST_ADGUARD_USERNAME
+  password_env: TEST_ADGUARD_PASSWORD
+options:
+  ttl_seconds: 0
+  create_dns_rewrites: false
+`,
+  );
+  await writeConfigFile(
+    workspace,
+    "servers.yaml",
+    `
+- id: app-origin
+  description: E2E application origin
+  ip: 10.77.0.20
+  os: linux
+  cloudflare-tunnel:
+    tunnel_id: e2e-tunnel
+`,
+  );
+  await writeConfigFile(
+    workspace,
+    "services.yaml",
+    `
+- id: dashboard
+  description: E2E dashboard
+  origin:
+    server: app-origin
+    port: 8080
+  publish:
+    cloudflare-tunnel:
+      via: app-origin
+      hostname: dashboard.mac.diogocasteluber.com.br
+`,
+  );
+
+  const result = await runCli([
+    "apply",
+    "--dry-run",
+    "--config",
+    workspace.configDirectory,
+    "--lockfile",
+    workspace.lockfilePath,
+  ]);
+
+  const output = `${result.stdout}\n${result.stderr}`;
+
+  assert.equal(result.exitCode, 1);
+  assert.match(output, /Invalid config/);
+  assert.match(
+    output,
+    /dashboard\.mac\.diogocasteluber\.com\.br' is too deep for default Cloudflare Universal SSL coverage/,
+  );
+  await assert.rejects(readFile(workspace.lockfilePath, "utf8"), { code: "ENOENT" });
+});
