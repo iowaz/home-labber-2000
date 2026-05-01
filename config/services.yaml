@@ -54,8 +54,8 @@
       aliases:
         - torrent.rede.local
     cloudflare-tunnel:
-      via: mac
-      hostname: qbittorrent.mac.diogocasteluber.com.br
+      via: nucbox
+      hostname: qbittorrent-mac.diogocasteluber.com.br
       path: "*"
   dns:
     from_publish: caddy
@@ -156,8 +156,8 @@
       via: nucbox
       hostname: sonarr.rede.local
     cloudflare-tunnel:
-      via: mac
-      hostname: sonarr.mac.diogocasteluber.com.br
+      via: nucbox
+      hostname: sonarr-mac.diogocasteluber.com.br
       path: "*"
   dns:
     from_publish: caddy
@@ -174,8 +174,8 @@
       via: nucbox
       hostname: radarr.rede.local
     cloudflare-tunnel:
-      via: mac
-      hostname: radarr.mac.diogocasteluber.com.br
+      via: nucbox
+      hostname: radarr-mac.diogocasteluber.com.br
       path: "*"
   dns:
     from_publish: caddy
@@ -224,7 +224,7 @@
       via: nucbox
       hostname: jellyfin.rede.local
     cloudflare-tunnel:
-      via: mac
+      via: nucbox
       hostname: jellyfin.diogocasteluber.com.br
       path: "*"
   dns:

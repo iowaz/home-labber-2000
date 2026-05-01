@@ -12,6 +12,9 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
+import { CloudflareTunnelService } from "../../src/services/cloudflare/cloudflare-tunnel-service.ts";
+import type { CloudflareTunnelsConfig, ServerEntry, ServiceEntry } from "../../src/config/types.ts";
+
 interface CliResult {
   exitCode: number | null;
   stdout: string;
@@ -206,6 +209,61 @@ function runCli(args: string[], options?: { env?: NodeJS.ProcessEnv }): Promise<
     });
   });
 }
+
+test("Cloudflare Tunnel managed state uses configured origin IP even when tunnel runs on origin server", () => {
+  process.env.TEST_CLOUDFLARE_API_TOKEN = "e2e-token";
+
+  const cloudflareConfig: CloudflareTunnelsConfig = {
+    account_id: "e2e-account",
+    auth: {
+      api_token_env: "TEST_CLOUDFLARE_API_TOKEN",
+    },
+    options: {
+      sync_public_dns: false,
+    },
+  };
+  const servers: ServerEntry[] = [
+    {
+      id: "app-origin",
+      description: "E2E application origin",
+      ip: "10.77.0.20",
+      os: "linux",
+      "cloudflare-tunnel": {
+        tunnel_id: "e2e-tunnel",
+      },
+    },
+  ];
+  const services: ServiceEntry[] = [
+    {
+      id: "dashboard",
+      description: "E2E dashboard",
+      origin: {
+        server: "app-origin",
+        port: 8080,
+        healthcheck: {
+          url_path: "/health",
+        },
+      },
+      publish: {
+        "cloudflare-tunnel": {
+          via: "app-origin",
+          hostname: "dashboard.example.test",
+        },
+      },
+    },
+  ];
+
+  const cloudflareService = new CloudflareTunnelService(
+    cloudflareConfig,
+    servers[0] as ServerEntry,
+    servers,
+  );
+
+  assert.equal(
+    cloudflareService.buildManagedState(services).ingress.dashboard?.service,
+    "http://10.77.0.20:8080",
+  );
+});
 
 function readRequestBody(request: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {

@@ -673,8 +673,7 @@ export class CloudflareTunnelService {
       throw new Error(`Service '${service.id}' does not define publish.cloudflare-tunnel.`);
     }
 
-    const host = publication.via === service.origin.server ? "localhost" : originServer.ip;
-    return `http://${host}:${service.origin.port}`;
+    return `http://${originServer.ip}:${service.origin.port}`;
   }
 
   private getCloudflareHostname(service: ServiceEntry): string {

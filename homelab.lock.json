@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-04-27T04:06:19.192Z",
+  "updatedAt": "2026-05-01T12:57:51.273Z",
   "caddy": {
     "nucbox": {
       "adminUrl": "http://192.168.31.14:2019/load",
@@ -113,50 +113,50 @@
     }
   },
   "cloudflareTunnel": {
-    "mac": {
-      "tunnelId": "7c2cee41-2013-4e50-adf6-4b10e24b5f2e",
+    "nucbox": {
+      "tunnelId": "33952613-76ae-44c6-97e9-19565125c9b7",
       "ingress": {
         "jellyfin": {
           "hostname": "jellyfin.diogocasteluber.com.br",
           "service": "http://192.168.31.14:8096"
         },
         "qbittorrent": {
-          "hostname": "qbittorrent.mac.diogocasteluber.com.br",
+          "hostname": "qbittorrent-mac.diogocasteluber.com.br",
           "service": "http://192.168.31.14:8872"
         },
         "radarr": {
-          "hostname": "radarr.mac.diogocasteluber.com.br",
+          "hostname": "radarr-mac.diogocasteluber.com.br",
           "service": "http://192.168.31.14:7878"
         },
         "sonarr": {
-          "hostname": "sonarr.mac.diogocasteluber.com.br",
+          "hostname": "sonarr-mac.diogocasteluber.com.br",
           "service": "http://192.168.31.14:8989"
         }
       },
       "publicDns": {
         "jellyfin": {
           "hostname": "jellyfin.diogocasteluber.com.br",
-          "tunnelId": "7c2cee41-2013-4e50-adf6-4b10e24b5f2e",
+          "tunnelId": "33952613-76ae-44c6-97e9-19565125c9b7",
           "zoneId": "b5789fc0ca9e748a6f37f3401cc2a9b0",
-          "recordId": "448f496919fbec5bec47740888a8fc94"
+          "recordId": "b1a05afdb1a30e259c62fa325e3ab9d9"
         },
         "qbittorrent": {
-          "hostname": "qbittorrent.mac.diogocasteluber.com.br",
-          "tunnelId": "7c2cee41-2013-4e50-adf6-4b10e24b5f2e",
+          "hostname": "qbittorrent-mac.diogocasteluber.com.br",
+          "tunnelId": "33952613-76ae-44c6-97e9-19565125c9b7",
           "zoneId": "b5789fc0ca9e748a6f37f3401cc2a9b0",
-          "recordId": "f3100b3d8f8ae47619b2a92338a7c209"
+          "recordId": "04c7008c7dac75d0e181ca919dd804e8"
         },
         "radarr": {
-          "hostname": "radarr.mac.diogocasteluber.com.br",
-          "tunnelId": "7c2cee41-2013-4e50-adf6-4b10e24b5f2e",
+          "hostname": "radarr-mac.diogocasteluber.com.br",
+          "tunnelId": "33952613-76ae-44c6-97e9-19565125c9b7",
           "zoneId": "b5789fc0ca9e748a6f37f3401cc2a9b0",
-          "recordId": "c4443970b3ddcf42b6bb3dc3987ead65"
+          "recordId": "a7d24ab052a9648d1a51bd0b00c87f24"
         },
         "sonarr": {
-          "hostname": "sonarr.mac.diogocasteluber.com.br",
-          "tunnelId": "7c2cee41-2013-4e50-adf6-4b10e24b5f2e",
+          "hostname": "sonarr-mac.diogocasteluber.com.br",
+          "tunnelId": "33952613-76ae-44c6-97e9-19565125c9b7",
           "zoneId": "b5789fc0ca9e748a6f37f3401cc2a9b0",
-          "recordId": "1abfa660251ce99be33cf181049e9661"
+          "recordId": "d2e4a666c4ca687515f4a7e06b84e7da"
         }
       }
     },
@@ -165,7 +165,7 @@
       "ingress": {
         "adguard": {
           "hostname": "adguard-home.diogocasteluber.com.br",
-          "service": "http://localhost:3001"
+          "service": "http://192.168.31.13:3001"
         }
       },
       "publicDns": {
