@@ -50,6 +50,7 @@
 - Reuse the container/service pattern rather than introducing one-off wiring.
 
 ## Validation Defaults
+- Treat `.specify/memory/constitution.md` as the authoritative Spec Kit governance for planning and delivery gates.
 - For behavior that affects live infra, prefer validating with `npm run apply:dry-run` before suggesting or attempting a real apply.
 - `--dry-run` validates and prepares changes without writing remote state or updating `homelab.lock.json`; the lockfile is updated only after successful real apply steps.
 - If a change affects config parsing or validation, inspect `src/config/config-loader.ts` and the related types first.
@@ -85,3 +86,9 @@
 - Update these instructions when commands, workflows, architecture, validation rules, or important conventions change.
 - If you notice repeated prompt/session friction, add a concise rule here to prevent that friction next time.
 - Treat this file as living project memory that should evolve with the codebase.
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan:
+`specs/001-split-services-config/plan.md`
+<!-- SPECKIT END -->
