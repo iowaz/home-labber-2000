@@ -1,0 +1,61 @@
+- id: transmission
+  description: Transmission BitTorrent client
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 9091
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: transmission.rede.local
+  dns:
+    from_publish: caddy
+
+- id: flood
+  description: Flood web UI for Transmission
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 3115
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: flood.rede.local
+  dns:
+    from_publish: caddy
+
+- id: qbittorrent
+  description: qBittorrent web UI (running on Mac)
+  origin:
+    server: nucbox
+    port: 8872
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: nucbox
+      hostname: qbittorrent.rede.local
+      aliases:
+        - torrent.rede.local
+    cloudflare-tunnel:
+      via: nucbox
+      hostname: qbittorrent-mac.diogocasteluber.com.br
+      path: "*"
+  dns:
+    from_publish: caddy
+
+- id: qbittorrent-exporter
+  description: qBittorrent Prometheus exporter
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 17871
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: qbittorrent-exporter.rede.local
+  dns:
+    from_publish: caddy

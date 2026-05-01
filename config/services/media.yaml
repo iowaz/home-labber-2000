@@ -1,0 +1,109 @@
+- id: jellyfin
+  description: Jellyfin Media Server (running on Mac)
+  origin:
+    server: nucbox
+    port: 8096
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: nucbox
+      hostname: jellyfin.rede.local
+    cloudflare-tunnel:
+      via: nucbox
+      hostname: jellyfin.diogocasteluber.com.br
+      path: "*"
+  dns:
+    from_publish: caddy
+
+- id: sonarr
+  description: Sonarr TV series manager (running on Mac)
+  origin:
+    server: nucbox
+    port: 8989
+    healthcheck:
+      url_path: /ping
+  publish:
+    caddy:
+      via: nucbox
+      hostname: sonarr.rede.local
+    cloudflare-tunnel:
+      via: nucbox
+      hostname: sonarr-mac.diogocasteluber.com.br
+      path: "*"
+  dns:
+    from_publish: caddy
+
+- id: radarr
+  description: Radarr movie manager (running on Mac)
+  origin:
+    server: nucbox
+    port: 7878
+    healthcheck:
+      url_path: /ping
+  publish:
+    caddy:
+      via: nucbox
+      hostname: radarr.rede.local
+    cloudflare-tunnel:
+      via: nucbox
+      hostname: radarr-mac.diogocasteluber.com.br
+      path: "*"
+  dns:
+    from_publish: caddy
+
+- id: readarr
+  description: Readarr ebook and audiobook manager
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 3104
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: readarr.rede.local
+  dns:
+    from_publish: caddy
+
+- id: prowlarr
+  description: Prowlarr indexer manager
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 3107
+    healthcheck:
+      url_path: /ping
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: prowlarr.rede.local
+  dns:
+    from_publish: caddy
+
+- id: bazarr
+  description: Bazarr subtitle manager
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 3103
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: bazarr.rede.local
+  dns:
+    from_publish: caddy
+
+- id: flaresolverr
+  description: FlareSolverr anti-bot proxy
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 8191
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: flaresolverr.rede.local
+  dns:
+    from_publish: caddy

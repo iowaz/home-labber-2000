@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { isIP } from "node:net";
 import path from "node:path";
 
@@ -18,6 +18,23 @@ import type {
 } from "./types.ts";
 
 type UnknownRecord = Record<string, unknown>;
+
+interface ServiceDeclarationFile {
+  path: string;
+  sourceLabel: string;
+}
+
+type ServiceSource =
+  | {
+      kind: "single-file";
+      path: string;
+      files: [ServiceDeclarationFile];
+    }
+  | {
+      kind: "folder";
+      path: string;
+      files: ServiceDeclarationFile[];
+    };
 
 const compoundPublicSuffixes = new Set<string>([
   "com.br",
@@ -122,6 +139,85 @@ async function parseOptionalYamlFile(filePath: string): Promise<unknown> {
 
     throw error;
   }
+}
+
+async function pathExists(filePath: string, expectedType: "file" | "directory"): Promise<boolean> {
+  try {
+    const stats = await stat(filePath);
+    return expectedType === "file" ? stats.isFile() : stats.isDirectory();
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError.code === "ENOENT") {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+function toConfigRelativePath(configDirectory: string, filePath: string): string {
+  return path.relative(configDirectory, filePath).split(path.sep).join(path.posix.sep);
+}
+
+function isYamlFilename(filename: string): boolean {
+  return filename.endsWith(".yaml") || filename.endsWith(".yml");
+}
+
+async function discoverServiceSource(
+  configDirectory: string,
+  issues: string[],
+): Promise<ServiceSource | undefined> {
+  const servicesFilePath = path.join(configDirectory, "services.yaml");
+  const servicesFolderPath = path.join(configDirectory, "services");
+
+  const [hasServicesFile, hasServicesFolder] = await Promise.all([
+    pathExists(servicesFilePath, "file"),
+    pathExists(servicesFolderPath, "directory"),
+  ]);
+
+  if (hasServicesFile && hasServicesFolder) {
+    issues.push("Use either config/services.yaml or config/services/, not both.");
+    return undefined;
+  }
+
+  if (hasServicesFile) {
+    return {
+      kind: "single-file",
+      path: servicesFilePath,
+      files: [
+        {
+          path: servicesFilePath,
+          sourceLabel: "services.yaml",
+        },
+      ],
+    };
+  }
+
+  if (!hasServicesFolder) {
+    issues.push("Config must include config/services.yaml or config/services/.");
+    return undefined;
+  }
+
+  const serviceFiles = (await readdir(servicesFolderPath, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && isYamlFilename(entry.name))
+    .map((entry): ServiceDeclarationFile => {
+      const filePath = path.join(servicesFolderPath, entry.name);
+      return {
+        path: filePath,
+        sourceLabel: toConfigRelativePath(configDirectory, filePath),
+      };
+    })
+    .sort((left, right) => left.sourceLabel.localeCompare(right.sourceLabel));
+
+  if (serviceFiles.length === 0) {
+    issues.push("config/services/ must contain at least one direct .yaml or .yml file.");
+  }
+
+  return {
+    kind: "folder",
+    path: servicesFolderPath,
+    files: serviceFiles,
+  };
 }
 
 function parseDnsConfig(value: unknown, issues: string[]): DnsConfig {
@@ -319,55 +415,62 @@ function parseServers(value: unknown, issues: string[]): ServerEntry[] {
   });
 }
 
-function parseServices(value: unknown, issues: string[]): ServiceEntry[] {
+function serviceField(sourceLabel: string, index: number, suffix = ""): string {
+  const field = `services[${index}]${suffix}`;
+  return sourceLabel === "services.yaml" ? field : `${sourceLabel} ${field}`;
+}
+
+function parseServices(value: unknown, issues: string[], sourceLabel = "services.yaml"): ServiceEntry[] {
   if (!Array.isArray(value)) {
-    issues.push("services.yaml must contain a list.");
+    issues.push(`${sourceLabel} must contain a list.`);
     return [];
   }
 
   return value.flatMap((entry: unknown, index: number): ServiceEntry[] => {
+    const entryField = serviceField(sourceLabel, index);
+
     if (!isRecord(entry)) {
-      issues.push(`services[${index}] must be an object.`);
+      issues.push(`${entryField} must be an object.`);
       return [];
     }
 
     const originRecord = isRecord(entry.origin) ? entry.origin : undefined;
     if (!originRecord) {
-      issues.push(`services[${index}].origin must be an object.`);
+      issues.push(`${entryField}.origin must be an object.`);
       return [];
     }
 
     const origin: ServiceOrigin = {
-      server: expectString(originRecord.server, `services[${index}].origin.server`, issues),
-      port: expectNumber(originRecord.port, `services[${index}].origin.port`, issues),
+      server: expectString(originRecord.server, serviceField(sourceLabel, index, ".origin.server"), issues),
+      port: expectNumber(originRecord.port, serviceField(sourceLabel, index, ".origin.port"), issues),
     };
 
     if (!Number.isInteger(origin.port) || origin.port < 1 || origin.port > 65535) {
-      issues.push(`services[${index}].origin.port must be an integer between 1 and 65535.`);
+      issues.push(`${entryField}.origin.port must be an integer between 1 and 65535.`);
     }
 
     const healthcheck = isRecord(originRecord.healthcheck) ? originRecord.healthcheck : undefined;
     if (healthcheck) {
       const urlPath = expectString(
         healthcheck.url_path,
-        `services[${index}].origin.healthcheck.url_path`,
+        serviceField(sourceLabel, index, ".origin.healthcheck.url_path"),
         issues,
       );
       if (!validateUrlPath(urlPath)) {
-        issues.push(`services[${index}].origin.healthcheck.url_path must start with '/'.`);
+        issues.push(`${entryField}.origin.healthcheck.url_path must start with '/'.`);
       }
       origin.healthcheck = { url_path: urlPath };
     }
 
     const publishRecord = isRecord(entry.publish) ? entry.publish : undefined;
     if (!publishRecord) {
-      issues.push(`services[${index}].publish must be an object.`);
+      issues.push(`${entryField}.publish must be an object.`);
       return [];
     }
 
     const service: ServiceEntry = {
-      id: expectString(entry.id, `services[${index}].id`, issues),
-      description: expectString(entry.description, `services[${index}].description`, issues),
+      id: expectString(entry.id, serviceField(sourceLabel, index, ".id"), issues),
+      description: expectString(entry.description, serviceField(sourceLabel, index, ".description"), issues),
       origin,
       publish: {},
     };
@@ -376,31 +479,35 @@ function parseServices(value: unknown, issues: string[]): ServiceEntry[] {
     if (caddyPublish) {
       const hostname = expectString(
         caddyPublish.hostname,
-        `services[${index}].publish.caddy.hostname`,
+        serviceField(sourceLabel, index, ".publish.caddy.hostname"),
         issues,
       );
       if (!validateHostname(hostname)) {
-        issues.push(`services[${index}].publish.caddy.hostname must be a valid hostname.`);
+        issues.push(`${entryField}.publish.caddy.hostname must be a valid hostname.`);
       }
 
       const publication: ServiceCaddyPublication = {
-        via: expectString(caddyPublish.via, `services[${index}].publish.caddy.via`, issues),
+        via: expectString(caddyPublish.via, serviceField(sourceLabel, index, ".publish.caddy.via"), issues),
         hostname,
       };
 
       if (caddyPublish.aliases !== undefined) {
         if (!Array.isArray(caddyPublish.aliases)) {
-          issues.push(`services[${index}].publish.caddy.aliases must be a list.`);
+          issues.push(`${entryField}.publish.caddy.aliases must be a list.`);
         } else {
           const aliases = caddyPublish.aliases.map((alias: unknown, aliasIndex: number): string =>
-            expectString(alias, `services[${index}].publish.caddy.aliases[${aliasIndex}]`, issues),
+            expectString(
+              alias,
+              serviceField(sourceLabel, index, `.publish.caddy.aliases[${aliasIndex}]`),
+              issues,
+            ),
           );
           publication.aliases = aliases;
 
           for (const alias of aliases) {
             if (!validateHostname(alias)) {
               issues.push(
-                `services[${index}].publish.caddy.aliases contains an invalid hostname: ${alias}`,
+                `${entryField}.publish.caddy.aliases contains an invalid hostname: ${alias}`,
               );
             }
           }
@@ -416,23 +523,23 @@ function parseServices(value: unknown, issues: string[]): ServiceEntry[] {
     if (cloudflareTunnel) {
       const hostname = expectString(
         cloudflareTunnel.hostname,
-        `services[${index}].publish.cloudflare-tunnel.hostname`,
+        serviceField(sourceLabel, index, ".publish.cloudflare-tunnel.hostname"),
         issues,
       );
       if (!validateHostname(hostname)) {
         issues.push(
-          `services[${index}].publish.cloudflare-tunnel.hostname must be a valid hostname.`,
+          `${entryField}.publish.cloudflare-tunnel.hostname must be a valid hostname.`,
         );
       } else if (!isCloudflareUniversalSslCoveredHostname(hostname)) {
         issues.push(
-          `services[${index}].publish.cloudflare-tunnel.hostname '${hostname}' is too deep for default Cloudflare Universal SSL coverage. Use a one-label public hostname such as service.diogocasteluber.com.br or service-mac.diogocasteluber.com.br, or provision matching edge certificate coverage before adding nested hostnames.`,
+          `${entryField}.publish.cloudflare-tunnel.hostname '${hostname}' is too deep for default Cloudflare Universal SSL coverage. Use a one-label public hostname such as service.diogocasteluber.com.br or service-mac.diogocasteluber.com.br, or provision matching edge certificate coverage before adding nested hostnames.`,
         );
       }
 
       const publication: ServiceCloudflareTunnelPublication = {
         via: expectString(
           cloudflareTunnel.via,
-          `services[${index}].publish.cloudflare-tunnel.via`,
+          serviceField(sourceLabel, index, ".publish.cloudflare-tunnel.via"),
           issues,
         ),
         hostname,
@@ -441,7 +548,7 @@ function parseServices(value: unknown, issues: string[]): ServiceEntry[] {
       if (cloudflareTunnel.path !== undefined) {
         publication.path = expectString(
           cloudflareTunnel.path,
-          `services[${index}].publish.cloudflare-tunnel.path`,
+          serviceField(sourceLabel, index, ".publish.cloudflare-tunnel.path"),
           issues,
         );
         if (
@@ -449,7 +556,7 @@ function parseServices(value: unknown, issues: string[]): ServiceEntry[] {
           !validateCloudflareTunnelPath(publication.path)
         ) {
           issues.push(
-            `services[${index}].publish.cloudflare-tunnel.path must be '*' or start with '/'.`,
+            `${entryField}.publish.cloudflare-tunnel.path must be '*' or start with '/'.`,
           );
         }
       }
@@ -458,18 +565,18 @@ function parseServices(value: unknown, issues: string[]): ServiceEntry[] {
     }
 
     if (!service.publish.caddy && !service.publish["cloudflare-tunnel"]) {
-      issues.push(`services[${index}].publish must define at least one publication.`);
+      issues.push(`${entryField}.publish must define at least one publication.`);
     }
 
     const dnsRecord = isRecord(entry.dns) ? entry.dns : undefined;
     if (dnsRecord) {
       const fromPublish = expectString(
         dnsRecord.from_publish,
-        `services[${index}].dns.from_publish`,
+        serviceField(sourceLabel, index, ".dns.from_publish"),
         issues,
       );
       if (fromPublish !== "caddy") {
-        issues.push(`services[${index}].dns.from_publish must be 'caddy'.`);
+        issues.push(`${entryField}.dns.from_publish must be 'caddy'.`);
       } else {
         service.dns = {
           from_publish: "caddy",
@@ -481,7 +588,39 @@ function parseServices(value: unknown, issues: string[]): ServiceEntry[] {
   });
 }
 
-function validateReferences(config: HomelabConfig, issues: string[]): void {
+async function parseServiceSource(
+  source: ServiceSource | undefined,
+  issues: string[],
+): Promise<{
+  serviceIdSources: Map<string, string[]>;
+  services: ServiceEntry[];
+}> {
+  const serviceIdSources = new Map<string, string[]>();
+  const services: ServiceEntry[] = [];
+
+  if (!source) {
+    return { serviceIdSources, services };
+  }
+
+  for (const file of source.files) {
+    const parsedServices = parseServices(await parseYamlFile(file.path), issues, file.sourceLabel);
+    services.push(...parsedServices);
+
+    for (const service of parsedServices) {
+      const sources = serviceIdSources.get(service.id) ?? [];
+      sources.push(file.sourceLabel);
+      serviceIdSources.set(service.id, sources);
+    }
+  }
+
+  return { serviceIdSources, services };
+}
+
+function validateReferences(
+  config: HomelabConfig,
+  issues: string[],
+  serviceIdSources = new Map<string, string[]>(),
+): void {
   const serverIds = new Set<string>();
   const serversById = new Map<string, ServerEntry>();
   const serviceIds = new Set<string>();
@@ -498,7 +637,12 @@ function validateReferences(config: HomelabConfig, issues: string[]): void {
 
   for (const service of config.services) {
     if (serviceIds.has(service.id)) {
-      issues.push(`Duplicate service id found: ${service.id}`);
+      const sources = serviceIdSources.get(service.id);
+      if (sources && sources.length > 1) {
+        issues.push(`Duplicate service id found: ${service.id} (${sources.join(", ")})`);
+      } else {
+        issues.push(`Duplicate service id found: ${service.id}`);
+      }
     }
     serviceIds.add(service.id);
 
@@ -563,24 +707,24 @@ export class YamlConfigLoader implements ConfigLoader {
     const dnsPath = path.join(configDirectory, "dns.yaml");
     const cloudflareTunnelsPath = path.join(configDirectory, "cloudflare-tunnels.yaml");
     const serversPath = path.join(configDirectory, "servers.yaml");
-    const servicesPath = path.join(configDirectory, "services.yaml");
+    const issues: string[] = [];
+    const serviceSource = await discoverServiceSource(configDirectory, issues);
 
-    const [dnsRaw, cloudflareTunnelsRaw, serversRaw, servicesRaw] = await Promise.all([
+    const [dnsRaw, cloudflareTunnelsRaw, serversRaw, parsedServiceSource] = await Promise.all([
       parseYamlFile(dnsPath),
       parseOptionalYamlFile(cloudflareTunnelsPath),
       parseYamlFile(serversPath),
-      parseYamlFile(servicesPath),
+      parseServiceSource(serviceSource, issues),
     ]);
 
-    const issues: string[] = [];
     const config: HomelabConfig = {
       dns: parseDnsConfig(dnsRaw, issues),
       cloudflareTunnels: parseCloudflareTunnelsConfig(cloudflareTunnelsRaw, issues),
       servers: parseServers(serversRaw, issues),
-      services: parseServices(servicesRaw, issues),
+      services: parsedServiceSource.services,
     };
 
-    validateReferences(config, issues);
+    validateReferences(config, issues, parsedServiceSource.serviceIdSources);
 
     if (issues.length > 0) {
       throw new Error(`Invalid config:\n- ${issues.join("\n- ")}`);

@@ -1,0 +1,31 @@
+- id: adguardhome
+  description: AdGuard Home admin interface
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 3000
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: adguardhome.rede.local
+  dns:
+    from_publish: caddy
+
+- id: adguard
+  description: AdGuard Home DNS
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 3001
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: adguard.rede.local
+    cloudflare-tunnel:
+      via: raspberry-pi-5-ethernet
+      hostname: adguard-home.diogocasteluber.com.br
+      path: "*"
+  dns:
+    from_publish: caddy

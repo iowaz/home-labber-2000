@@ -81,23 +81,18 @@ async function createWorkspace(): Promise<TestWorkspace> {
 }
 
 async function writeConfigFile(workspace: TestWorkspace, filename: string, content: string): Promise<void> {
-  await writeFile(path.join(workspace.configDirectory, filename), `${content.trim()}\n`, "utf8");
+  const filePath = path.join(workspace.configDirectory, filename);
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, `${content.trim()}\n`, "utf8");
 }
 
-async function writeBaseConfig(
+async function writeBaseConfigFiles(
   workspace: TestWorkspace,
   options: {
     caddyApiUrl: string;
     adguardApiUrl: string;
-    serviceId?: string;
-    hostname?: string;
-    alias?: string;
   },
-): Promise<{ serviceId: string; hostname: string; alias: string }> {
-  const serviceId = options.serviceId ?? uniqueId("dashboard").replaceAll(".", "-");
-  const hostname = options.hostname ?? `${serviceId}.e2e.home.test`;
-  const alias = options.alias ?? `${serviceId}-alias.e2e.home.test`;
-
+): Promise<void> {
   await writeConfigFile(
     workspace,
     "cloudflare-tunnels.yaml",
@@ -141,27 +136,58 @@ options:
   os: linux
 `,
   );
+}
 
-  await writeConfigFile(
-    workspace,
-    "services.yaml",
-    `
-- id: ${serviceId}
-  description: E2E dashboard
+function buildServiceYaml(options: {
+  serviceId: string;
+  hostname: string;
+  alias?: string;
+  description?: string;
+  port?: number;
+}): string {
+  const aliasYaml = options.alias
+    ? `
+      aliases:
+        - ${options.alias}`
+    : "";
+
+  return `
+- id: ${options.serviceId}
+  description: ${options.description ?? "E2E dashboard"}
   origin:
     server: app-origin
-    port: 8080
+    port: ${options.port ?? 8080}
     healthcheck:
       url_path: /health
   publish:
     caddy:
       via: caddy-publish
-      hostname: ${hostname}
-      aliases:
-        - ${alias}
+      hostname: ${options.hostname}${aliasYaml}
   dns:
     from_publish: caddy
-`,
+`;
+}
+
+async function writeBaseConfig(
+  workspace: TestWorkspace,
+  options: {
+    caddyApiUrl: string;
+    adguardApiUrl: string;
+    serviceId?: string;
+    hostname?: string;
+    alias?: string;
+  },
+): Promise<{ serviceId: string; hostname: string; alias: string }> {
+  const serviceId = options.serviceId ?? uniqueId("dashboard").replaceAll(".", "-");
+  const hostname = options.hostname ?? `${serviceId}.e2e.home.test`;
+  const alias = options.alias ?? `${serviceId}-alias.e2e.home.test`;
+
+  await writeBaseConfigFiles(workspace, options);
+
+  await writeConfigFile(
+    workspace,
+    "services.yaml",
+    buildServiceYaml({ serviceId, hostname, alias }),
   );
 
   return { serviceId, hostname, alias };
@@ -506,6 +532,209 @@ test("apply syncs Caddy and AdGuard through HTTP APIs, writes managed lockfile s
   assert.equal(adguardApi.requests.length, 0, "unchanged DNS state should not call AdGuard Home");
 });
 
+test("apply loads direct YAML service files from config/services in deterministic order", async (t) => {
+  const workspace = await createWorkspace();
+  const caddyApi = await startCaddyApiServer();
+  const adguardApi = await startAdGuardApiServer();
+
+  t.after(async () => {
+    await caddyApi.close();
+    await adguardApi.close();
+    await rm(workspace.root, { force: true, recursive: true });
+  });
+
+  await writeBaseConfigFiles(workspace, {
+    caddyApiUrl: caddyApi.baseUrl,
+    adguardApiUrl: adguardApi.baseUrl,
+  });
+  await writeConfigFile(
+    workspace,
+    "services/media.yml",
+    buildServiceYaml({
+      serviceId: "media-dashboard",
+      hostname: "media-dashboard.e2e.home.test",
+      description: "E2E media dashboard",
+      port: 8081,
+    }),
+  );
+  await writeConfigFile(
+    workspace,
+    "services/downloads.yaml",
+    buildServiceYaml({
+      serviceId: "downloads-dashboard",
+      hostname: "downloads-dashboard.e2e.home.test",
+      description: "E2E downloads dashboard",
+      port: 8082,
+    }),
+  );
+  await writeConfigFile(workspace, "services/notes.txt", "ignored: true");
+  await writeConfigFile(
+    workspace,
+    "services/nested/ignored.yaml",
+    buildServiceYaml({
+      serviceId: "nested-dashboard",
+      hostname: "nested-dashboard.e2e.home.test",
+      port: 8083,
+    }),
+  );
+
+  const result = await runCli([
+    "apply",
+    "--dry-run",
+    "--config",
+    workspace.configDirectory,
+    "--lockfile",
+    workspace.lockfilePath,
+  ]);
+
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.match(result.stdout, /app-origin .*:2 services/);
+  assert.match(result.stdout, /downloads-dashboard\.e2e\.home\.test/);
+  assert.match(result.stdout, /media-dashboard\.e2e\.home\.test/);
+  assert.doesNotMatch(result.stdout, /nested-dashboard\.e2e\.home\.test/);
+  assert.match(result.stdout, /2 routes prepared/);
+  assert.equal(caddyApi.requests.length, 0, "dry-run must not POST Caddy config");
+  assert.equal(adguardApi.requests.length, 0, "dry-run must not call AdGuard Home");
+});
+
+test("renaming split service files does not change real apply lockfile intent", async (t) => {
+  const caddyApi = await startCaddyApiServer();
+  const adguardApi = await startAdGuardApiServer();
+  const firstWorkspace = await createWorkspace();
+  const secondWorkspace = await createWorkspace();
+
+  t.after(async () => {
+    await caddyApi.close();
+    await adguardApi.close();
+    await rm(firstWorkspace.root, { force: true, recursive: true });
+    await rm(secondWorkspace.root, { force: true, recursive: true });
+  });
+
+  async function writeSplitConfig(workspace: TestWorkspace, firstFile: string, secondFile: string): Promise<void> {
+    await writeBaseConfigFiles(workspace, {
+      caddyApiUrl: caddyApi.baseUrl,
+      adguardApiUrl: adguardApi.baseUrl,
+    });
+    await writeConfigFile(
+      workspace,
+      firstFile,
+      buildServiceYaml({
+        serviceId: "alpha-dashboard",
+        hostname: "alpha-dashboard.e2e.home.test",
+        port: 8081,
+      }),
+    );
+    await writeConfigFile(
+      workspace,
+      secondFile,
+      buildServiceYaml({
+        serviceId: "beta-dashboard",
+        hostname: "beta-dashboard.e2e.home.test",
+        port: 8082,
+      }),
+    );
+  }
+
+  await writeSplitConfig(firstWorkspace, "services/01-alpha.yaml", "services/02-beta.yaml");
+  await writeSplitConfig(secondWorkspace, "services/z-beta.yaml", "services/a-alpha.yml");
+
+  const firstApply = await runCli([
+    "apply",
+    "--config",
+    firstWorkspace.configDirectory,
+    "--lockfile",
+    firstWorkspace.lockfilePath,
+  ]);
+  const secondApply = await runCli([
+    "apply",
+    "--config",
+    secondWorkspace.configDirectory,
+    "--lockfile",
+    secondWorkspace.lockfilePath,
+  ]);
+
+  assert.equal(firstApply.exitCode, 0, firstApply.stderr);
+  assert.equal(secondApply.exitCode, 0, secondApply.stderr);
+
+  const firstLockfile = JSON.parse(await readFile(firstWorkspace.lockfilePath, "utf8")) as {
+    updatedAt?: string;
+  };
+  const secondLockfile = JSON.parse(await readFile(secondWorkspace.lockfilePath, "utf8")) as {
+    updatedAt?: string;
+  };
+  delete firstLockfile.updatedAt;
+  delete secondLockfile.updatedAt;
+
+  assert.deepEqual(firstLockfile, secondLockfile);
+});
+
+test("split-folder apply writes lockfile state and skips unchanged reapply", async (t) => {
+  const workspace = await createWorkspace();
+  const caddyApi = await startCaddyApiServer();
+  const adguardApi = await startAdGuardApiServer();
+
+  t.after(async () => {
+    await caddyApi.close();
+    await adguardApi.close();
+    await rm(workspace.root, { force: true, recursive: true });
+  });
+
+  await writeBaseConfigFiles(workspace, {
+    caddyApiUrl: caddyApi.baseUrl,
+    adguardApiUrl: adguardApi.baseUrl,
+  });
+  await writeConfigFile(
+    workspace,
+    "services/dashboards.yaml",
+    buildServiceYaml({
+      serviceId: "split-dashboard",
+      hostname: "split-dashboard.e2e.home.test",
+      alias: "split-dashboard-alias.e2e.home.test",
+    }),
+  );
+
+  const firstApply = await runCli([
+    "apply",
+    "--config",
+    workspace.configDirectory,
+    "--lockfile",
+    workspace.lockfilePath,
+  ]);
+
+  assert.equal(firstApply.exitCode, 0, firstApply.stderr);
+  assert.match(firstApply.stdout, /1 routes applied/);
+  assert.equal(caddyApi.requests.length, 1, "first split apply should POST one Caddy payload");
+
+  const lockfile = JSON.parse(await readFile(workspace.lockfilePath, "utf8")) as {
+    caddy: Record<string, { services: Record<string, { hostnames: string[]; upstream: string }> }>;
+    dns: Record<string, { services: Record<string, { domains: string[]; answer: string }> }>;
+  };
+  assert.deepEqual(lockfile.caddy["caddy-publish"]?.services["split-dashboard"], {
+    hostnames: ["split-dashboard.e2e.home.test", "split-dashboard-alias.e2e.home.test"],
+    upstream: "10.77.0.20:8080",
+  });
+  assert.deepEqual(lockfile.dns["caddy-publish"]?.services["split-dashboard"], {
+    domains: ["split-dashboard-alias.e2e.home.test", "split-dashboard.e2e.home.test"],
+    answer: "10.77.0.10",
+  });
+
+  caddyApi.requests.length = 0;
+  adguardApi.requests.length = 0;
+
+  const secondApply = await runCli([
+    "apply",
+    "--config",
+    workspace.configDirectory,
+    "--lockfile",
+    workspace.lockfilePath,
+  ]);
+
+  assert.equal(secondApply.exitCode, 0, secondApply.stderr);
+  assert.match(secondApply.stdout, /skipped \(lockfile unchanged\)/);
+  assert.equal(caddyApi.requests.length, 0, "unchanged split Caddy state should not call Caddy");
+  assert.equal(adguardApi.requests.length, 0, "unchanged split DNS state should not call AdGuard Home");
+});
+
 test("apply --full-http-output prints request and response details for HTTP-backed operations", async (t) => {
   const workspace = await createWorkspace();
   const caddyApi = await startCaddyApiServer();
@@ -649,6 +878,232 @@ options:
     output,
     /services\.broken-service references unknown caddy publish server 'missing-caddy'/,
   );
+  await assert.rejects(readFile(workspace.lockfilePath, "utf8"), { code: "ENOENT" });
+});
+
+test("apply rejects ambiguous service layouts before external writes", async (t) => {
+  const workspace = await createWorkspace();
+  const caddyApi = await startCaddyApiServer();
+  const adguardApi = await startAdGuardApiServer();
+
+  t.after(async () => {
+    await caddyApi.close();
+    await adguardApi.close();
+    await rm(workspace.root, { force: true, recursive: true });
+  });
+
+  await writeBaseConfig(workspace, {
+    caddyApiUrl: caddyApi.baseUrl,
+    adguardApiUrl: adguardApi.baseUrl,
+  });
+  await writeConfigFile(
+    workspace,
+    "services/extra.yaml",
+    buildServiceYaml({
+      serviceId: "extra-dashboard",
+      hostname: "extra-dashboard.e2e.home.test",
+    }),
+  );
+
+  const result = await runCli([
+    "apply",
+    "--dry-run",
+    "--config",
+    workspace.configDirectory,
+    "--lockfile",
+    workspace.lockfilePath,
+  ]);
+
+  const output = `${result.stdout}\n${result.stderr}`;
+
+  assert.equal(result.exitCode, 1);
+  assert.match(output, /Use either config\/services\.yaml or config\/services\/, not both/);
+  assert.equal(caddyApi.requests.length, 0, "invalid config must not call Caddy");
+  assert.equal(adguardApi.requests.length, 0, "invalid config must not call AdGuard Home");
+  await assert.rejects(readFile(workspace.lockfilePath, "utf8"), { code: "ENOENT" });
+});
+
+test("apply rejects missing and empty split service sources", async (t) => {
+  const missingWorkspace = await createWorkspace();
+  const emptyWorkspace = await createWorkspace();
+
+  t.after(async () => {
+    await rm(missingWorkspace.root, { force: true, recursive: true });
+    await rm(emptyWorkspace.root, { force: true, recursive: true });
+  });
+
+  await writeBaseConfigFiles(missingWorkspace, {
+    caddyApiUrl: "http://127.0.0.1:1",
+    adguardApiUrl: "http://127.0.0.1:1",
+  });
+  await writeBaseConfigFiles(emptyWorkspace, {
+    caddyApiUrl: "http://127.0.0.1:1",
+    adguardApiUrl: "http://127.0.0.1:1",
+  });
+  await mkdir(path.join(emptyWorkspace.configDirectory, "services"), { recursive: true });
+  await writeConfigFile(emptyWorkspace, "services/readme.txt", "ignored: true");
+
+  const missingResult = await runCli([
+    "apply",
+    "--dry-run",
+    "--config",
+    missingWorkspace.configDirectory,
+    "--lockfile",
+    missingWorkspace.lockfilePath,
+  ]);
+  const emptyResult = await runCli([
+    "apply",
+    "--dry-run",
+    "--config",
+    emptyWorkspace.configDirectory,
+    "--lockfile",
+    emptyWorkspace.lockfilePath,
+  ]);
+
+  assert.equal(missingResult.exitCode, 1);
+  assert.match(
+    `${missingResult.stdout}\n${missingResult.stderr}`,
+    /Config must include config\/services\.yaml or config\/services\//,
+  );
+  assert.equal(emptyResult.exitCode, 1);
+  assert.match(
+    `${emptyResult.stdout}\n${emptyResult.stderr}`,
+    /config\/services\/ must contain at least one direct \.yaml or \.yml file/,
+  );
+  await assert.rejects(readFile(missingWorkspace.lockfilePath, "utf8"), { code: "ENOENT" });
+  await assert.rejects(readFile(emptyWorkspace.lockfilePath, "utf8"), { code: "ENOENT" });
+});
+
+test("apply rejects split service files that do not contain YAML lists", async (t) => {
+  const workspace = await createWorkspace();
+
+  t.after(async () => {
+    await rm(workspace.root, { force: true, recursive: true });
+  });
+
+  await writeBaseConfigFiles(workspace, {
+    caddyApiUrl: "http://127.0.0.1:1",
+    adguardApiUrl: "http://127.0.0.1:1",
+  });
+  await writeConfigFile(
+    workspace,
+    "services/broken.yaml",
+    `
+id: broken-dashboard
+description: This should be a list
+`,
+  );
+
+  const result = await runCli([
+    "apply",
+    "--dry-run",
+    "--config",
+    workspace.configDirectory,
+    "--lockfile",
+    workspace.lockfilePath,
+  ]);
+
+  const output = `${result.stdout}\n${result.stderr}`;
+
+  assert.equal(result.exitCode, 1);
+  assert.match(output, /services\/broken\.yaml must contain a list/);
+  await assert.rejects(readFile(workspace.lockfilePath, "utf8"), { code: "ENOENT" });
+});
+
+test("apply rejects duplicate service IDs across split files with file context", async (t) => {
+  const workspace = await createWorkspace();
+
+  t.after(async () => {
+    await rm(workspace.root, { force: true, recursive: true });
+  });
+
+  await writeBaseConfigFiles(workspace, {
+    caddyApiUrl: "http://127.0.0.1:1",
+    adguardApiUrl: "http://127.0.0.1:1",
+  });
+  await writeConfigFile(
+    workspace,
+    "services/media.yaml",
+    buildServiceYaml({
+      serviceId: "duplicate-dashboard",
+      hostname: "duplicate-media.e2e.home.test",
+    }),
+  );
+  await writeConfigFile(
+    workspace,
+    "services/downloads.yaml",
+    buildServiceYaml({
+      serviceId: "duplicate-dashboard",
+      hostname: "duplicate-downloads.e2e.home.test",
+      port: 8081,
+    }),
+  );
+
+  const result = await runCli([
+    "apply",
+    "--dry-run",
+    "--config",
+    workspace.configDirectory,
+    "--lockfile",
+    workspace.lockfilePath,
+  ]);
+
+  const output = `${result.stdout}\n${result.stderr}`;
+
+  assert.equal(result.exitCode, 1);
+  assert.match(
+    output,
+    /Duplicate service id found: duplicate-dashboard \(services\/downloads\.yaml, services\/media\.yaml\)/,
+  );
+  await assert.rejects(readFile(workspace.lockfilePath, "utf8"), { code: "ENOENT" });
+});
+
+test("apply rejects split-file unknown server references before lockfile creation", async (t) => {
+  const workspace = await createWorkspace();
+  const caddyApi = await startCaddyApiServer();
+  const adguardApi = await startAdGuardApiServer();
+
+  t.after(async () => {
+    await caddyApi.close();
+    await adguardApi.close();
+    await rm(workspace.root, { force: true, recursive: true });
+  });
+
+  await writeBaseConfigFiles(workspace, {
+    caddyApiUrl: caddyApi.baseUrl,
+    adguardApiUrl: adguardApi.baseUrl,
+  });
+  await writeConfigFile(
+    workspace,
+    "services/broken.yaml",
+    `
+- id: broken-dashboard
+  description: Broken split service
+  origin:
+    server: missing-origin
+    port: 8080
+  publish:
+    caddy:
+      via: caddy-publish
+      hostname: broken-dashboard.e2e.home.test
+`,
+  );
+
+  const result = await runCli([
+    "apply",
+    "--dry-run",
+    "--config",
+    workspace.configDirectory,
+    "--lockfile",
+    workspace.lockfilePath,
+  ]);
+
+  const output = `${result.stdout}\n${result.stderr}`;
+
+  assert.equal(result.exitCode, 1);
+  assert.match(output, /services\.broken-dashboard references unknown origin server 'missing-origin'/);
+  assert.equal(caddyApi.requests.length, 0, "invalid config must not call Caddy");
+  assert.equal(adguardApi.requests.length, 0, "invalid config must not call AdGuard Home");
   await assert.rejects(readFile(workspace.lockfilePath, "utf8"), { code: "ENOENT" });
 });
 

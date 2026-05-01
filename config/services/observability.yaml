@@ -1,0 +1,41 @@
+- id: grafana
+  description: Grafana dashboards
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 3110
+    healthcheck:
+      url_path: /api/health
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: grafana.rede.local
+  dns:
+    from_publish: caddy
+
+- id: prometheus
+  description: Prometheus metrics server
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 9090
+    healthcheck:
+      url_path: /-/healthy
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: prometheus.rede.local
+  dns:
+    from_publish: caddy
+
+- id: node-exporter
+  description: Prometheus Node Exporter metrics endpoint
+  origin:
+    server: raspberry-pi-5-ethernet
+    port: 9100
+    healthcheck:
+      url_path: /
+  publish:
+    caddy:
+      via: raspberry-pi-5-ethernet
+      hostname: node_exporter.rede.local
+  dns:
+    from_publish: caddy
